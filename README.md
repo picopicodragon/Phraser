@@ -1,51 +1,51 @@
 # Phraser
 
-Windows-only VST3 instrument for Ableton Live 12. Written in C++17 with JUCE 8.
+Windows x64 VST3 instrument for Ableton Live 12, developed with C++17, JUCE 8 and CMake.
 
-**Status: experimental v0.2 source; the latest changes have NOT yet been compiled or tested on Windows.** The earlier v0.1 prototype built and was tested for WAV loading/playback on Live 12.
+**main** is the last user-tested v0.2 prototype. The `feature/phrase-engine-v03` branch contains **experimental v0.3** source, not yet compiled or verified in Live 12.
 
-## Features in the new experimental source
-- Four independently loadable mono/stereo WAV slots
-- 16-step bar-synced phrase generator, multiple samples chosen across steps
-- Density, Breaks, Size, Swing, Gain and Fade parameters
-- Click a step number to enable/mute that event
-- Click LOCK under any step to protect it from future GENERATE operations
-- Fade-in/out envelope at slice boundaries; interpolated sample playback across sample rates
-- Save the sixteen steps, parameters, and **WAV file paths** into DAW state. WAV audio is referenced externally, not embedded.
-- MIDI input event bus for host instrument compatibility, but transport-sync playback (notes not required)
-- No video
+## New in experimental v0.3
 
-## Windows requirements
-- Visual Studio 2026 Community with C++ desktop workload (or VS 2022 with the matching generator)
-- CMake >= 3.22; Git; x64 Windows; Ableton Live 12
-- First CMake configuration fetches JUCE 8.0.8
+- **Transient Snap**: lightweight offline energy-rise detection when loading WAV; generated slice positions optionally snap to detected onsets.
+- **Variation**: adjusts motif repetition and switching of random sample positions across a 16-step phrase.
+- **8 voice pool**: a new slice starts as the earlier voice releases, allowing short overlaps instead of abrupt one-voice cuts.
+- **Short crossfade**: previous voices release for about 5 ms at each new sixteenth-note event.
+- All v0.2 features retained: four sample slots, 16 steps, per-step enable and LOCK, Density, Breaks, Size, Swing, Gain, Fade, DAW state with external WAV file paths.
 
-## Build (PowerShell, VS 2026)
+## Setup
+
+Requires Windows x64, Visual Studio 2026 with the C++ desktop workload, CMake >= 3.22, Git, and Ableton Live 12.
+
 ```powershell
 git clone https://github.com/picopicodragon/Phraser.git
 cd Phraser
+git switch feature/phrase-engine-v03
 cmake -S . -B build -G "Visual Studio 18 2026" -A x64
 cmake --build build --config Release --target Phraser_VST3
 ```
 
-Built output: `build/Phraser_artefacts/Release/VST3/Phraser.vst3` (a directory/bundle). Close Live and copy the **entire** bundle to `C:\Program Files\Common Files\VST3\Phraser.vst3`; launch Live and rescan VST3.
+Output: `build/Phraser_artefacts/Release/VST3/Phraser.vst3` (bundle directory).
 
-## Operation
-1. Insert Phraser on a **MIDI track**, then choose up to four WAVs.
-2. Press **GENERATE**. Each enabled step chooses from the loaded sample slots.
-3. Start Live's transport; the phrase plays on sixteenth-note steps.
-4. Adjust Density/Breaks/Size, then GENERATE again to apply them to new steps. Swing/Gain/Fade act during playback.
-5. Click a step to mute/unmute it. Click LOCK to keep the event when regenerating.
-6. Save Live project; sample paths and pattern are stored. Keep the WAVs at those paths.
+**Do not overwrite the previously working installation until the new binary compiles.** Exit Ableton completely; back up `C:\Program Files\Common Files\VST3\Phraser.vst3`; copy in the new bundle using an elevated PowerShell session; start Live and rescan.
 
-## Important limitations
-- Only WAV, no transient detection, high-quality time stretching or pitch correction yet.
-- Single active slice voice; steps cut off the preceding slice.
-- Very short per-slice fades reduce clicks but are not full crossfades.
-- Sample loading is synchronous on UI thread and state restoration; very large files may block. Do not use huge WAVs yet.
-- Saved audio is referenced by absolute path. Missing/moved files are silent; there is no relocation dialog yet.
-- Generator is rhythmically random, not yet music-aware; each pattern is one bar long in 4/4.
-- GitHub Actions uses VS 2022 for additional CI coverage; local instructions use VS 2026.
-- v0.2 remains **unverified** until a Windows build and Live 12 check succeed.
+## Controls
 
-See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for acceptance tests and next milestones.
+- Four slot buttons load WAVs.
+- GENERATE randomizes unlocked steps. Density and Breaks shape rests; Size sets slice duration.
+- SNAP controls how often randomly chosen positions are moved to nearby detected attacks.
+- VARIATION reduces motif repetition at high values; lower values repeat more.
+- SWING offsets alternate 16th-note steps; GAIN and FADE affect playback.
+- Click a step to mute/unmute, click LOCK beneath it to protect its contents on regenerate.
+
+## Current limitations
+
+- **Not yet verified**: Windows compilation and Live 12 integration for v0.3.
+- Onset detection is an energy-rise approximation, not a spectral-flux or machine-learning transient detector.
+- No pitch shift, time stretch, attack classification, wav export or multibus routing yet.
+- Up to 8 overlapping voices; dense rapid retriggering may steal a voice, and no true constant-power crossfade.
+- Audio is saved as external absolute WAV paths. Missing files remain silent.
+- WAV decoding on state restore may block the host; realtime-safe ownership and async file IO remain future work.
+- Pattern is one 4/4 bar.
+- Controls are normalized float parameters and are saved by the DAW; regenerate after changing Density, Breaks, Size, Snap or Variation.
+
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for PC1 verification tasks.
