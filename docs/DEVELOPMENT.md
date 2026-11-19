@@ -1,41 +1,39 @@
-# Phraser v0.4 verification / acceptance gate
+# PC1 v0.5 acceptance tests
 
-This branch is **experimental**. v0.3 source is the base. Do not merge until v0.4 compiles on PC1 and passes Live 12 smoke tests.
+The `feature/v05-waveform-16slots-arrangement` branch is experimental until Windows MSVC and Ableton Live 12 validate it.
 
 ## Build
 
 ```powershell
 cd C:\Users\picopicoDragon\Documents\Phraser
 git fetch origin
-git switch -c feature/v04-orbit-ui-pitch --track origin/feature/v04-orbit-ui-pitch
-cmake -S . -B build-v04 -G "Visual Studio 18 2026" -A x64
-cmake --build build-v04 --config Release --target Phraser_VST3
+git switch -c feature/v05-waveform-16slots-arrangement --track origin/feature/v05-waveform-16slots-arrangement
+cmake -S . -B build-v05 -G "Visual Studio 18 2026" -A x64
+cmake --build build-v05 --config Release --target Phraser_VST3
 ```
 
-Use `git switch feature/v04-orbit-ui-pitch` if the local branch exists.
+If the local branch already exists, use `git switch feature/v05-waveform-16slots-arrangement` then `git pull`. Preserve the installed v0.4 VST3 before copying the new bundle.
 
-## Checklist
+## Acceptance checklist
 
-- [ ] VS2026 Release VST3 builds, with no errors or MSVC C4819 warning.
-- [ ] Ableton Live 12 recognizes the VST3 instrument and editor opens.
-- [ ] Orbit shows four independent ring colours and current active step.
-- [ ] Left-click mutes/unmutes one step; Shift+click changes step's source ring.
-- [ ] Right-click locks a step and the marked step survives NEW PHRASE.
-- [ ] 4 WAV buttons load distinct samples.
-- [ ] Ten knobs attach to host parameters; automation values persist.
-- [ ] Pitch +12 raises the sample one octave and doubles its play rate; -12 lowers it.
-- [ ] Pitch Spread generates different note transpositions on unlocked steps, after regenerate.
-- [ ] SAVE/RECALL A/B restores expected phrase, including step-level pitch.
-- [ ] Ableton save and reopen restores current phrase, Keep A/B, pitch, sample paths.
-- [ ] Playback remains stable at 44.1k and 48k sample rates and when tempo changes.
-- [ ] Changing project/closing editor while playing does not crash Live.
-- [ ] Compare GUI at Windows 100% and 150% display scaling for label clipping.
-- [ ] Measure CPU and peak level on dense overlapping samples.
+- [ ] Windows MSVC Release builds VST3 without errors/C4819.
+- [ ] Ableton Live 12 loads plugin and displays all 16 WAV lanes in the 1460×950 GUI.
+- [ ] Independently load 16 short WAVs, different sounds and peak shapes.
+- [ ] A sample's playback marker moves and disappears after its voice ends.
+- [ ] Different waveforms visibly differ; missing slots show a flat line.
+- [ ] Select a different sample, change START FROM/TO and LENGTH MIN/MAX; reopen selection and confirm ranges remain.
+- [ ] Start range 0.0–0.1 produces beginnings; range 0.8–1.0 produces late slices.
+- [ ] Length range 0.01–0.02 produces shorter slices than 0.5–0.8 (before SIZE scaling).
+- [ ] 1 bar × 8 = 8 active steps; 4 bars × 8 = 32; 4 bars × 16 = 64.
+- [ ] Host BPM change keeps intended 8/16 step subdivisions in 4/4.
+- [ ] 64-step grid cells mute, lock and shift-route to selected sample.
+- [ ] Keep A/B restores full 64-step snapshot.
+- [ ] Live session save/reopen restores all 16 WAV paths, per-slot range values, patterns and parameters.
+- [ ] Reopen a project from v0.4 with four WAVs and a 16-step phrase.
+- [ ] Missing/moved WAV path produces silence rather than crash.
+- [ ] Transport stop/seek, loop and 44.1/48k playback do not crash.
+- [ ] Test high-DPI monitor for clipping; CPU and memory with 16 WAVs.
 
-## Technical debt / prioritization
+## Known technical debt
 
-1. Replace synchronous sample disk IO and atomic-shared_ptr ownership with a realtime-safe sample bank exchange and background loader.
-2. Distinguish tempo-independent pitch shift from simple playback rate and introduce HQ resampling/anti-aliasing.
-3. Add 4/4 meter-independent 1–4 bar phrases, MIDI note gate and clip export.
-4. Test VST3 compatibility using pluginval/Steinberg tests and audio regression benchmarks.
-5. Add GUI resize support, focus accessibility and advanced per-step editing.
+Synchronous decoding; immutable shared_ptr ownership in audio callback; approximate onset detector; no independent time-stretch; sample peak visualizer only; fixed 4/4; no clip export; no WAV memory budget across slots; no automated audio tests.
