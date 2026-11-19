@@ -42,6 +42,13 @@ target_sources(Phraser PRIVATE
     Source/PluginEditor.h
 )
 
+# JUCE/HarfBuzz source files contain UTF-8 characters that MSVC otherwise
+# attempts to decode using the Japanese Windows default code page (CP932).
+# /utf-8 enables both UTF-8 source and execution character sets.
+if (MSVC)
+    target_compile_options(Phraser PRIVATE /utf-8)
+endif()
+
 target_compile_definitions(Phraser PUBLIC
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
