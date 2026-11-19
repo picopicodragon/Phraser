@@ -92,6 +92,9 @@ void PhraserAudioProcessor::prepareToPlay(double sampleRate, int)
     for (auto& voice : voices) voice = {};
     for (auto& pos : playPositions) pos.store(-1.0f, std::memory_order_relaxed);
     nextVoice = 0;
+    voiceSerial = 0;
+    activeVoiceCount.store(0, std::memory_order_relaxed);
+    for (auto& count : slotVoiceCounts) count.store(0, std::memory_order_relaxed);
 }
 
 bool PhraserAudioProcessor::loadWavFile(int slot, const juce::File& file)
@@ -316,18 +319,14 @@ void PhraserAudioProcessor::recallKeep(int index)
     if (kept) std::atomic_store(&pattern, kept);
 }
 
+// New steps no longer release previous voices. Each voice sustains for its
+// independently generated slice duration (or until the sample end).
+// When all 32 slots are occupied, the oldest voice is stolen.
 void PhraserAudioProcessor::startStep(
     const SliceEvent& event,
     const std::array<std::shared_ptr<const PhraserSample>, numSlots>& available,
-    double releaseFrames)
+    double /*releaseFrames*/)
 {
-    for (auto& voice : voices)
-        if (voice.source && voice.releaseStart < 0.0)
-        {
-            voice.releaseStart = voice.rendered;
-            voice.releaseFrames = releaseFrames;
-        }
-
     if (!event.enabled || !juce::isPositiveAndBelow(event.slot, numSlots)) return;
     auto source = available[static_cast<size_t>(event.slot)];
     if (!source || source->audio.getNumSamples() < 2) return;
@@ -337,13 +336,20 @@ void PhraserAudioProcessor::startStep(
         if (!voices[static_cast<size_t>(i)].source) { selected = i; break; }
     if (selected < 0)
     {
-        selected = nextVoice;
-        nextVoice = (nextVoice + 1) % maxVoices;
+        // Oldest voice is preferred, so current musical material survives where possible.
+        uint64_t oldest = std::numeric_limits<uint64_t>::max();
+        for (int i = 0; i < maxVoices; ++i)
+            if (voices[static_cast<size_t>(i)].serial < oldest)
+            {
+                oldest = voices[static_cast<size_t>(i)].serial;
+                selected = i;
+            }
     }
 
     Voice voice;
     voice.source = std::move(source);
     voice.slot = event.slot;
+    voice.serial = ++voiceSerial;
     const double last = static_cast<double>(voice.source->audio.getNumSamples() - 1);
     voice.position = juce::jlimit(0.0, last - 1.0, static_cast<double>(event.offset) * last);
     voice.end = juce::jmin(last,
@@ -353,6 +359,32 @@ void PhraserAudioProcessor::startStep(
     voice.increment = voice.source->sampleRate / engineSampleRate * std::pow(2.0, semitones / 12.0);
     voice.duration = juce::jmax(1.0, (voice.end - voice.position) / voice.increment);
     voices[static_cast<size_t>(selected)] = std::move(voice);
+}
+
+void PhraserAudioProcessor::publishVoiceMeters()
+{
+    std::array<int, numSlots> counts {};
+    std::array<float, numSlots> positions {};
+    positions.fill(-1.0f);
+    int total = 0;
+    for (const auto& voice : voices)
+    {
+        if (!voice.source || !juce::isPositiveAndBelow(voice.slot, numSlots)) continue;
+        const auto slot = static_cast<size_t>(voice.slot);
+        ++counts[slot];
+        ++total;
+        // Furthest-progressed active sample is indicated on each waveform.
+        positions[slot] = juce::jmax(positions[slot],
+            static_cast<float>(voice.position / voice.source->audio.getNumSamples()));
+    }
+    for (int i = 0; i < numSlots; ++i)
+    {
+        slotVoiceCounts[static_cast<size_t>(i)].store(
+            counts[static_cast<size_t>(i)], std::memory_order_relaxed);
+        playPositions[static_cast<size_t>(i)].store(
+            positions[static_cast<size_t>(i)], std::memory_order_relaxed);
+    }
+    activeVoiceCount.store(total, std::memory_order_relaxed);
 }
 
 void PhraserAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
@@ -373,7 +405,7 @@ void PhraserAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
         previousStep = std::numeric_limits<int64_t>::min();
         currentStep.store(-1, std::memory_order_relaxed);
         for (auto& voice : voices) voice = {};
-        for (auto& indicator : playPositions) indicator.store(-1.0f, std::memory_order_relaxed);
+        publishVoiceMeters();
         return;
     }
     const auto position = host->getPosition();
@@ -389,6 +421,7 @@ void PhraserAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
     const auto ppq = position->getPpqPosition();
     const double bpm = position->getBpm().orFallback(120.0);
     if (!ppq || bpm <= 0.0) return;
+    lastBpm.store(bpm, std::memory_order_relaxed);
 
     const int subdivision = getStepsPerBar();
     const int active = getActiveSteps();
@@ -455,12 +488,7 @@ void PhraserAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
         }
     }
 
-    for (auto& indicator : playPositions) indicator.store(-1.0f, std::memory_order_relaxed);
-    for (const auto& voice : voices)
-        if (voice.source && juce::isPositiveAndBelow(voice.slot, numSlots))
-            playPositions[static_cast<size_t>(voice.slot)].store(
-                static_cast<float>(voice.position / voice.source->audio.getNumSamples()),
-                std::memory_order_relaxed);
+    publishVoiceMeters();
 }
 
 juce::AudioProcessorEditor* PhraserAudioProcessor::createEditor()
