@@ -22,9 +22,10 @@ PhraserAudioProcessorEditor::PhraserAudioProcessorEditor(PhraserAudioProcessor& 
     {
         chooser = std::make_unique<juce::FileChooser>(
             "Select a WAV sample", juce::File {}, "*.wav");
+        const juce::Component::SafePointer<PhraserAudioProcessorEditor> safe(this);
         chooser->launchAsync(juce::FileBrowserComponent::openMode
                                 | juce::FileBrowserComponent::canSelectFiles,
-            [safe = juce::Component::SafePointer<PhraserAudioProcessorEditor>(this)](const juce::FileChooser& fc)
+            [safe](const juce::FileChooser& fc)
             {
                 if (safe == nullptr)
                     return;
