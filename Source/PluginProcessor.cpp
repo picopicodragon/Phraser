@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "TransientDetection.h"
 #include <cmath>
 #include <limits>
 
@@ -18,6 +19,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout PhraserAudioProcessor::makeP
     add("swing", "Swing", 0.0f, 0.75f, 0.0f);
     add("gain", "Gain", 0.0f, 1.0f, 0.7f);
     add("fade", "Fade", 0.001f, 0.03f, 0.006f);
+    add("transient", "Transient Snap", 0.0f, 1.0f, 1.0f);
+    add("variation", "Variation", 0.0f, 1.0f, 0.5f);
     return { params.begin(), params.end() };
 }
 
@@ -39,8 +42,8 @@ void PhraserAudioProcessor::prepareToPlay(double newRate, int)
 {
     engineSampleRate = newRate;
     previousStep = std::numeric_limits<int64_t>::min();
-    activeSample.reset();
-    voicePosition = voiceEnd = 0.0;
+    for (auto& voice : voices) voice = {};
+    nextVoice = 0;
 }
 
 bool PhraserAudioProcessor::loadWavFile(int slot, const juce::File& file)
@@ -62,6 +65,7 @@ bool PhraserAudioProcessor::loadWavFile(int slot, const juce::File& file)
         return false;
     loaded->sampleRate = reader->sampleRate;
     loaded->sourcePath = file.getFullPathName();
+    loaded->transients = phraser::detectTransients(loaded->audio, loaded->sampleRate);
     std::atomic_store(&samples[static_cast<size_t>(slot)],
                       std::shared_ptr<const PhraserSample>(loaded));
     return true;
@@ -75,6 +79,13 @@ juce::String PhraserAudioProcessor::getSlotName(int slot) const
     return source ? juce::File(source->sourcePath).getFileName() : "(empty)";
 }
 
+int PhraserAudioProcessor::getTransientCount(int slot) const
+{
+    if (!juce::isPositiveAndBelow(slot, numSlots)) return 0;
+    const auto loaded = std::atomic_load(&samples[static_cast<size_t>(slot)]);
+    return loaded ? static_cast<int>(loaded->transients.size()) : 0;
+}
+
 PhraserPattern PhraserAudioProcessor::getPatternSnapshot() const
 {
     auto p = std::atomic_load(&pattern);
@@ -84,16 +95,21 @@ PhraserPattern PhraserAudioProcessor::getPatternSnapshot() const
 void PhraserAudioProcessor::randomizePattern()
 {
     auto next = std::make_shared<PhraserPattern>();
-    auto old = std::atomic_load(&pattern);
+    const auto old = std::atomic_load(&pattern);
     const auto density = parameters.getRawParameterValue("density")->load();
     const auto breaks = parameters.getRawParameterValue("breaks")->load();
     const auto size = parameters.getRawParameterValue("slice")->load();
+    const auto variation = parameters.getRawParameterValue("variation")->load();
+    const auto snap = parameters.getRawParameterValue("transient")->load();
     std::array<int, numSlots> loaded {};
     int count = 0;
     for (int i = 0; i < numSlots; ++i)
         if (std::atomic_load(&samples[static_cast<size_t>(i)]))
             loaded[static_cast<size_t>(count++)] = i;
 
+    const int anchor = count > 0 ? loaded[static_cast<size_t>(random.nextInt(count))] : 0;
+    float anchorOffset = random.nextFloat() * 0.9f;
+    const int motifPeriod = variation < 0.33f ? 4 : (variation < 0.67f ? 8 : 16);
     for (int i = 0; i < numSteps; ++i)
     {
         auto& e = next->events[static_cast<size_t>(i)];
@@ -102,13 +118,36 @@ void PhraserAudioProcessor::randomizePattern()
             e = old->events[static_cast<size_t>(i)];
             continue;
         }
-        // Consecutive pairs create occasional breaks, while density handles individual rests.
-        const bool rest = random.nextFloat() >= density
-            || ((i % 4) >= 2 && random.nextFloat() < breaks);
-        e.enabled = !rest;
-        e.slot = count > 0 ? loaded[static_cast<size_t>(random.nextInt(count))] : 0;
-        e.offset = random.nextFloat() * 0.95f;
+
+        const bool rhythmicBreak = (i % 4 >= 2 && random.nextFloat() < breaks);
+        e.enabled = random.nextFloat() < density && !rhythmicBreak;
+        const bool repeatMotif = i >= motifPeriod && random.nextFloat() > variation;
+        if (repeatMotif)
+        {
+            e = next->events[static_cast<size_t>(i - motifPeriod)];
+            e.locked = false;
+            continue;
+        }
+
+        e.slot = count > 0 ? loaded[static_cast<size_t>(random.nextInt(count))] : anchor;
         e.length = size;
+        e.offset = (variation < 0.25f && (i % 4) != 0)
+            ? anchorOffset : random.nextFloat() * 0.94f;
+        if (i % 4 == 0) anchorOffset = e.offset;
+
+        const auto source = std::atomic_load(&samples[static_cast<size_t>(e.slot)]);
+        if (source && !source->transients.empty() && random.nextFloat() < snap)
+        {
+            const auto& onsets = source->transients;
+            const auto it = std::lower_bound(onsets.begin(), onsets.end(), e.offset);
+            if (it == onsets.end()) e.offset = onsets.back();
+            else if (it == onsets.begin()) e.offset = *it;
+            else
+            {
+                const auto earlier = *(it - 1);
+                e.offset = (e.offset - earlier < *it - e.offset) ? earlier : *it;
+            }
+        }
     }
     std::atomic_store(&pattern, std::shared_ptr<const PhraserPattern>(next));
 }
