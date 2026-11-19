@@ -5,14 +5,14 @@ Windows-only JUCE/C++ VST3 sample slicer instrument for Ableton Live 12.
 Status: prototype source code; NOT compiled or tested in Ableton Live 12 yet.
 
 ## Build requirements
-- Windows x64, Visual Studio 2022 C++ workload, CMake 3.22+, Git
+- Windows x64, Visual Studio 2026 C++ workload, CMake 3.22+, Git
 - Internet connection to fetch JUCE during initial CMake configure
 
 ## Build (PowerShell)
 ```powershell
 git clone https://github.com/picopicodragon/Phraser.git
 cd Phraser
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+cmake -S . -B build -G "Visual Studio 18 2026" -A x64
 cmake --build build --config Release --target Phraser_VST3
 ```
 
