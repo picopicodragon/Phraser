@@ -38,4 +38,4 @@ Backup the prior installed VST3 and work only on a disposable Live set until tes
 
 ## Algorithm quality limits
 
-Current implementation is two-grain overlap-add with 30ms hop, not pitch-synchronous WSOLA or spectral/phase-vocoder stretching. It approximates independent tempo and pitch; complex signals and extreme ratios may sound granular. Avoid describing it as transparent high-fidelity time stretching. Dedicated DSP tests and host automation tests remain future work.
+Current implementation is two-grain overlap-add with 30ms hop and a bounded waveform-similarity search at grain boundaries. It is WSOLA-inspired, but not a complete pitch-synchronous WSOLA, transient-aware vocoder, or professional formant-preserving stretcher. It approximates independent tempo and pitch; complex signals and extreme ratios may sound granular. Avoid describing it as transparent high-fidelity time stretching. Dedicated DSP tests and host automation tests remain future work.
