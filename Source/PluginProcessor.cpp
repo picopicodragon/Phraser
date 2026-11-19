@@ -2,6 +2,7 @@
 #include "PluginEditor.h"
 #include "TransientDetection.h"
 #include "TempoDetection.h"
+#include "GrainAlignment.h"
 #include <algorithm>
 #include <cmath>
 
@@ -549,7 +550,18 @@ void PhraserAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
             if (grain != voice.currentGrainHop)
             {
                 voice.currentGrainHop = grain;
-                voice.grainStarts[static_cast<size_t>(grain & 1LL)] = voice.position;
+                auto start = voice.position;
+                if (grain > 0 && std::abs(voice.increment - voice.pitchIncrement) > 1.0e-5)
+                {
+                    const auto earlier = static_cast<size_t>(1LL - (grain & 1LL));
+                    start = phraser::alignGrainStart(
+                        audio, start, voice.grainStarts[earlier],
+                        voice.pitchIncrement, hop, voice.source->sampleRate,
+                        voice.sourceStart,
+                        juce::jmin(voice.end - 0.0001,
+                                   static_cast<double>(audio.getNumSamples() - 1)));
+                }
+                voice.grainStarts[static_cast<size_t>(grain & 1LL)] = start;
             }
             const auto current = static_cast<size_t>(grain & 1LL);
             const auto previous = 1U - current;
@@ -570,12 +582,9 @@ void PhraserAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
                 const auto* data = audio.getReadPointer(srcChannel);
                 auto sampleAt = [&](double index)
                 {
-                    const double clamped = juce::jlimit(
-                        voice.sourceStart, juce::jmax(voice.sourceStart, highest), index);
-                    const int first = static_cast<int>(clamped);
-                    const int second = juce::jmin(first + 1, audio.getNumSamples() - 1);
-                    const float fraction = static_cast<float>(clamped - first);
-                    return data[first] + (data[second] - data[first]) * fraction;
+                    return phraser::grainSampleAt(
+                        data, audio.getNumSamples(), index,
+                        voice.sourceStart, juce::jmax(voice.sourceStart, highest));
                 };
                 const float value = sampleAt(fresh) * freshWeight
                     + sampleAt(older) * olderWeight;
