@@ -4,7 +4,16 @@ Windows-only VST3 phrase sampler for Ableton Live 12. Developed in C++17 using J
 
 ## Status
 
-**Experimental v0.6** is on `feature/v06-polyphonic-light-orbit`, based on the 16-WAV waveform-matrix v0.5 branch. The known working main branch is untouched. This v0.6 code must pass Windows CI and Ableton 12 testing before it is released.
+**Experimental v0.6.1** is on `feature/v061-per-slot-playback-mode`, based on the 16-WAV waveform-matrix v0.6 branch. The known working main branch is untouched. This v0.6 code must pass Windows CI and Ableton 12 testing before it is released.
+
+## New in v0.6.1: per-WAV playback behavior
+
+Each of the 16 WAV slots can independently choose one of two **trigger behavior modes** from the sample range inspector:
+
+- **PLAYBACK: FULL SLICE LENGTH** (default): each trigger runs until that event's programmed slice end. Multiple triggers overlap independently, up to the existing 32-voice cap.
+- **PLAYBACK: 5ms FADE AT NEXT STEP**: the voice plays normally until the sequencer advances to the **next step**, then releases smoothly over about **5 milliseconds**. This also happens when the next step is a rest. If a slice ends before the next step, it ends naturally. The next step itself can retrigger the same WAV.
+
+Playback mode is per sample slot, captured at note trigger time. Changing it affects **new notes**, not currently sounding ones. Existing custom per-slot START FROM/TO and LENGTH MIN/MAX remain independent. All mode selections are saved with the Live project as a `fadeAtNextStep` property in each `SampleSlot` XML node. Old project files default to FULL SLICE LENGTH. The sample loader buttons show **F** (5ms next-step fade) or **L** (full length) beside the sample number. The orbit preview approximates the shorter release period.
 
 ## New in v0.6
 
@@ -39,8 +48,8 @@ Windows-only VST3 phrase sampler for Ableton Live 12. Developed in C++17 using J
 ```powershell
 cd C:\Users\picopicoDragon\Documents\Phraser
 git fetch origin
-git switch -c feature/v06-polyphonic-light-orbit --track origin/feature/v06-polyphonic-light-orbit
-cmake -S . -B build-v06 -G "Visual Studio 18 2026" -A x64
+git switch -c feature/v061-per-slot-playback-mode --track origin/feature/v061-per-slot-playback-mode
+cmake -S . -B build-v061 -G "Visual Studio 18 2026" -A x64
 cmake --build build-v06 --config Release --target Phraser_VST3
 ```
 
@@ -56,6 +65,6 @@ Back up the known working VST3 bundle first; exit Live before installing, and re
 - Slice duration is proportional to original WAV length, adjusted by playback rate; no separate time stretching or pitch correction.
 - Ring arcs use predicted slice lengths at the currently reported BPM, so the visual is an approximation of audible overlap. 4/4 meter assumed.
 - UI currently fixed 1460×1150, so small laptop displays may require OS scaling or later resize support.
-- v0.6 must be checked in Ableton Live 12 before claiming production reliability.
+- v0.6.1 must be checked in Ableton Live 12 before claiming production reliability.
 
 See docs/DEVELOPMENT.md and docs/UI_DESIGN.md.

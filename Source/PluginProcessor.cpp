@@ -75,6 +75,8 @@ PhraserAudioProcessor::PhraserAudioProcessor()
     formatManager.registerBasicFormats();
     for (auto& position : playPositions)
         position.store(-1.0f, std::memory_order_relaxed);
+    for (auto& mode : fadeAtNextStepModes)
+        mode.store(false, std::memory_order_relaxed);
     randomizePattern();
 }
 
@@ -191,6 +193,7 @@ void PhraserAudioProcessor::setSlotSettings(int slot, PhraserSlotSettings value)
     value.lengthMax = juce::jlimit(value.lengthMin, 1.0f, value.lengthMax);
     const juce::ScopedLock guard(settingsLock);
     settings[static_cast<size_t>(slot)] = value;
+    fadeAtNextStepModes[static_cast<size_t>(slot)].store(value.fadeAtNextStep, std::memory_order_release);
 }
 
 PhraserPattern PhraserAudioProcessor::getPatternSnapshot() const
@@ -349,6 +352,7 @@ void PhraserAudioProcessor::startStep(
     Voice voice;
     voice.source = std::move(source);
     voice.slot = event.slot;
+    voice.fadeAtNextStep = fadeAtNextStepModes[static_cast<size_t>(event.slot)].load(std::memory_order_acquire);
     voice.serial = ++voiceSerial;
     const double last = static_cast<double>(voice.source->audio.getNumSamples() - 1);
     voice.position = juce::jlimit(0.0, last - 1.0, static_cast<double>(event.offset) * last);
@@ -445,6 +449,15 @@ void PhraserAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
             previousStep = step;
             const int index = static_cast<int>((step % active + active) % active);
             currentStep.store(index, std::memory_order_relaxed);
+            // Release only voices whose *sample slot* is configured for NEXT STEP 5ms.
+            // FULL LENGTH voices remain independent and can overlap for their entire slice.
+            // This happens on rests too, as the phrase advances to the next step.
+            for (auto& voice : voices)
+                if (voice.source && voice.fadeAtNextStep && voice.releaseStart < 0.0)
+                {
+                    voice.releaseStart = voice.rendered;
+                    voice.releaseFrames = crossfadeFrames;
+                }
             startStep(localPattern->events[static_cast<size_t>(index)], available, crossfadeFrames);
         }
 
@@ -500,7 +513,7 @@ void PhraserAudioProcessor::getStateInformation(juce::MemoryBlock& destination)
 {
     auto xml = parameters.copyState().createXml();
     if (!xml) return;
-    xml->setAttribute("phraserVersion", 5);
+    xml->setAttribute("phraserVersion", 61);
     std::array<PhraserSlotSettings, numSlots> ranges;
     {
         const juce::ScopedLock guard(settingsLock);
@@ -517,6 +530,7 @@ void PhraserAudioProcessor::getStateInformation(juce::MemoryBlock& destination)
         slot->setAttribute("startMax", v.startMax);
         slot->setAttribute("lengthMin", v.lengthMin);
         slot->setAttribute("lengthMax", v.lengthMax);
+        slot->setAttribute("fadeAtNextStep", v.fadeAtNextStep);
     }
 
     auto* phrase = xml->createNewChildElement("Phrase");
@@ -558,6 +572,7 @@ void PhraserAudioProcessor::setStateInformation(const void* data, int size)
             range.startMax = static_cast<float>(slotElement->getDoubleAttribute("startMax", 1.0));
             range.lengthMin = static_cast<float>(slotElement->getDoubleAttribute("lengthMin", 0.08));
             range.lengthMax = static_cast<float>(slotElement->getDoubleAttribute("lengthMax", 0.35));
+            range.fadeAtNextStep = slotElement->getBoolAttribute("fadeAtNextStep", false);
         }
         setSlotSettings(i, range);
 

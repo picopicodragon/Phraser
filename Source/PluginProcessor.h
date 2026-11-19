@@ -38,6 +38,7 @@ struct PhraserSlotSettings
     float startMax = 1.0f;
     float lengthMin = 0.08f;
     float lengthMax = 0.35f;
+    bool fadeAtNextStep = false;
 };
 
 // Pattern and sample snapshots are immutable after publication.
@@ -104,6 +105,7 @@ private:
     std::shared_ptr<const PhraserPattern> pattern;
     std::array<std::shared_ptr<const PhraserPattern>, 2> keeps;
     std::array<PhraserSlotSettings, numSlots> settings;
+    std::array<std::atomic<bool>, numSlots> fadeAtNextStepModes {};
     mutable juce::CriticalSection settingsLock;
     juce::AudioFormatManager formatManager;
     juce::Random random;
@@ -126,6 +128,7 @@ private:
         double releaseStart = -1.0;
         double releaseFrames = 1.0;
         int slot = -1;
+        bool fadeAtNextStep = false;
         uint64_t serial = 0;
     };
     static constexpr int maxVoices = 32;
