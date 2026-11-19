@@ -83,6 +83,13 @@ public:
     void recallKeep(int index);
     PhraserPattern getPatternSnapshot() const;
     int getCurrentStep() const { return currentStep.load(std::memory_order_relaxed); }
+    int getActiveVoiceCount() const { return activeVoiceCount.load(std::memory_order_relaxed); }
+    int getVoiceCountForSlot(int slot) const
+    {
+        return juce::isPositiveAndBelow(slot, numSlots)
+            ? slotVoiceCounts[static_cast<size_t>(slot)].load(std::memory_order_relaxed) : 0;
+    }
+    double getHostBpm() const { return lastBpm.load(std::memory_order_relaxed); }
     float getPlayPosition(int slot) const;
     int getActiveSteps() const;
     int getStepsPerBar() const;
@@ -101,6 +108,9 @@ private:
     juce::AudioFormatManager formatManager;
     juce::Random random;
     std::atomic<int> currentStep { -1 };
+    std::atomic<int> activeVoiceCount { 0 };
+    std::array<std::atomic<int>, numSlots> slotVoiceCounts {};
+    std::atomic<double> lastBpm { 120.0 };
     std::array<std::atomic<float>, numSlots> playPositions {};
     double engineSampleRate = 44100.0;
     int64_t previousStep = std::numeric_limits<int64_t>::min();
@@ -116,13 +126,16 @@ private:
         double releaseStart = -1.0;
         double releaseFrames = 1.0;
         int slot = -1;
+        uint64_t serial = 0;
     };
-    static constexpr int maxVoices = 8;
+    static constexpr int maxVoices = 32;
     std::array<Voice, maxVoices> voices {};
     int nextVoice = 0;
+    uint64_t voiceSerial = 0;
 
     void startStep(const SliceEvent&,
                    const std::array<std::shared_ptr<const PhraserSample>, numSlots>&,
                    double releaseFrames);
+    void publishVoiceMeters();
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PhraserAudioProcessor)
 };

@@ -3,21 +3,21 @@
 
 namespace
 {
-const juce::Colour ink { 0xff0b1015 };
-const juce::Colour surface { 0xff161d25 };
-const juce::Colour inset { 0xff11181f };
-const juce::Colour line { 0xff283440 };
-const juce::Colour muted { 0xff82919d };
-const juce::Colour bright { 0xffeff4f2 };
-const juce::Colour acid { 0xffd5fa66 };
-const juce::Colour amber { 0xffffbb76 };
+const juce::Colour ink { 0xffedf2ef };
+const juce::Colour surface { 0xfffcfdfb };
+const juce::Colour inset { 0xffe3ebe6 };
+const juce::Colour line { 0xffcad6ce };
+const juce::Colour muted { 0xff60776e };
+const juce::Colour bright { 0xff1e3029 };
+const juce::Colour acid { 0xff238b60 };
+const juce::Colour amber { 0xffc97939 };
 
 juce::Colour trackColour(int slot)
 {
     // Four related colour families provide separation without a rainbow UI.
     const std::array<juce::Colour, 4> families {
-        juce::Colour { 0xff6ac7bd }, juce::Colour { 0xffc9af85 },
-        juce::Colour { 0xff9fa7d6 }, juce::Colour { 0xffbd8caa }
+        juce::Colour { 0xff167d77 }, juce::Colour { 0xffb47635 },
+        juce::Colour { 0xff675cb5 }, juce::Colour { 0xffb45078 }
     };
     return families[static_cast<size_t>(slot / 4)].interpolatedWith(bright, (slot % 4) * 0.055f);
 }
@@ -77,9 +77,9 @@ PhraserAudioProcessorEditor::PhraserAudioProcessorEditor(PhraserAudioProcessor& 
 {
     theme = std::make_unique<StudioLookAndFeel>();
     setLookAndFeel(theme.get());
-    setSize(1460, 950);
+    setSize(1460, 1150);
 
-    generateButton.setColour(juce::TextButton::buttonColourId, juce::Colour { 0xff344c28 });
+    generateButton.setColour(juce::TextButton::buttonColourId, juce::Colour { 0xffcdebd8 });
     generateButton.onClick = [this]
     {
         processor.randomizePattern();
@@ -91,7 +91,7 @@ PhraserAudioProcessorEditor::PhraserAudioProcessorEditor(PhraserAudioProcessor& 
     for (int i = 0; i < PhraserAudioProcessor::numSlots; ++i)
     {
         auto& button = slotButtons[static_cast<size_t>(i)];
-        button.setColour(juce::TextButton::buttonColourId, juce::Colour { 0xff202a33 });
+        button.setColour(juce::TextButton::buttonColourId, juce::Colour { 0xffe3ece6 });
         button.onClick = [this, i]
         {
             selectedSlot = i;
@@ -109,8 +109,8 @@ PhraserAudioProcessorEditor::PhraserAudioProcessorEditor(PhraserAudioProcessor& 
         const auto memory = juce::String(i == 0 ? "A" : "B");
         save.setButtonText("KEEP " + memory);
         recall.setButtonText("RECALL " + memory);
-        save.setColour(juce::TextButton::buttonColourId, juce::Colour { 0xff283a31 });
-        recall.setColour(juce::TextButton::buttonColourId, juce::Colour { 0xff273743 });
+        save.setColour(juce::TextButton::buttonColourId, juce::Colour { 0xffd0e7d8 });
+        recall.setColour(juce::TextButton::buttonColourId, juce::Colour { 0xffdce7e1 });
         save.onClick = [this, i]
         {
             processor.saveKeep(i);
@@ -192,7 +192,7 @@ void PhraserAudioProcessorEditor::updateSlotButtons()
         button.setButtonText(juce::String(i + 1).paddedLeft('0', 2)
                              + "   " + processor.getSlotName(i).substring(0, 14));
         button.setColour(juce::TextButton::buttonColourId,
-            i == selectedSlot ? juce::Colour { 0xff36443b } : juce::Colour { 0xff202a33 });
+            i == selectedSlot ? juce::Colour { 0xffb7d9c5 } : juce::Colour { 0xffe3ece6 });
     }
 }
 
@@ -251,6 +251,7 @@ void PhraserAudioProcessorEditor::timerCallback()
         repaint(20, 765, 1418, 155);
     }
     repaint(190, 106, 826, 630);
+    repaint(1027, 752, 420, 380);
 }
 
 void PhraserAudioProcessorEditor::paintLanes(juce::Graphics& g)
@@ -264,7 +265,7 @@ void PhraserAudioProcessorEditor::paintLanes(juce::Graphics& g)
         const float y = 116.0f + 39.0f * slot;
         const float mid = y + 16.0f;
         const bool selected = slot == selectedSlot;
-        g.setColour(selected ? juce::Colour { 0xff212c32 } : inset);
+        g.setColour(selected ? juce::Colour { 0xffd5e5db } : inset);
         g.fillRect(27.0f, y - 2.0f, 978.0f, 36.0f);
         g.setColour(line);
         g.drawHorizontalLine(static_cast<int>(y + 35), 29.0f, 1006.0f);
@@ -326,15 +327,15 @@ void PhraserAudioProcessorEditor::paintSequence(juce::Graphics& g)
                juce::String(active / division) + " BARS  /  " +
                juce::String(division) + " STEPS PER BAR",
                174, 768, 440, 23, juce::Justification::centredLeft);
-    g.drawText("CLICK: MUTE   SHIFT+CLICK: ROUTE TO SELECTED WAV   RIGHT-CLICK: LOCK",
-               677, 768, 722, 23, juce::Justification::centredRight);
+    g.drawText("CLICK: MUTE   SHIFT: ROUTE   RIGHT: LOCK",
+               585, 768, 398, 23, juce::Justification::centredRight);
 
     // 4 rows of 16 cells. In 8-step mode, each physical row is two bars.
     for (int i = 0; i < PhraserAudioProcessor::numSteps; ++i)
     {
         const int row = i / 16;
         const int col = i % 16;
-        const float x = 34.0f + col * 86.5f;
+        const float x = 34.0f + col * 60.0f;
         const float y = 797.0f + row * 30.0f;
         const bool visible = i < active;
         const auto& event = pattern.events[static_cast<size_t>(i)];
@@ -342,27 +343,112 @@ void PhraserAudioProcessorEditor::paintSequence(juce::Graphics& g)
 
         auto colour = visible && event.enabled
             ? trackColour(juce::jlimit(0, 15, event.slot)).withAlpha(0.8f)
-            : juce::Colour { 0xff242f39 };
-        if (!visible) colour = juce::Colour { 0xff151e26 };
+            : juce::Colour { 0xffdce6df };
+        if (!visible) colour = juce::Colour { 0xffe7ede9 };
         g.setColour(colour);
-        g.fillRoundedRectangle(x, y, 81.0f, 22.0f, 2.0f);
+        g.fillRoundedRectangle(x, y, 55.0f, 22.0f, 2.0f);
         if (playingNow)
         {
             g.setColour(acid);
-            g.drawRoundedRectangle(x, y, 81.0f, 22.0f, 2.0f, 2.0f);
+            g.drawRoundedRectangle(x, y, 55.0f, 22.0f, 2.0f, 2.0f);
         }
         if (event.locked && visible)
         {
             g.setColour(amber);
-            g.fillRect(x + 74.0f, y + 2.0f, 4.0f, 4.0f);
+            g.fillRect(x + 48.0f, y + 2.0f, 4.0f, 4.0f);
         }
-        g.setColour(visible && event.enabled ? ink : muted.withAlpha(0.6f));
+        g.setColour(visible && event.enabled ? juce::Colours::white : muted.withAlpha(0.75f));
         g.setFont(juce::FontOptions(10.0f, juce::Font::bold));
         g.drawText(juce::String(i + 1).paddedLeft('0', 2)
                    + (visible && event.enabled ? "  S" + juce::String(event.slot + 1) : ""),
                    static_cast<int>(x + 6), static_cast<int>(y),
-                   65, 22, juce::Justification::centredLeft);
+                   48, 22, juce::Justification::centredLeft);
     }
+}
+
+void PhraserAudioProcessorEditor::paintOverlapOrbit(juce::Graphics& g)
+{
+    constexpr float cx = 1231.0f;
+    constexpr float cy = 937.0f;
+    constexpr float firstRadius = 45.0f;
+    constexpr float spacing = 6.5f;
+    const float twoPi = juce::MathConstants<float>::twoPi;
+    const int active = processor.getActiveSteps();
+    const auto phrase = processor.getPatternSnapshot();
+    const double bpm = juce::jmax(20.0, processor.getHostBpm());
+    const int subdivision = processor.getStepsPerBar();
+    const double phraseSeconds = 4.0 * (active / subdivision) * 60.0 / bpm;
+
+    g.setColour(surface);
+    g.fillRoundedRectangle(1027.0f, 753.0f, 410.0f, 364.0f, 5.0f);
+    g.setColour(line);
+    g.drawRoundedRectangle(1027.0f, 753.0f, 410.0f, 364.0f, 5.0f, 1.0f);
+    g.setColour(bright);
+    g.setFont(juce::FontOptions(13.0f, juce::Font::bold));
+    g.drawText("POLYPHONIC OVERLAP / 16 LAYERS", 1048, 764, 367, 25,
+               juce::Justification::centredLeft);
+
+    // Each ring represents one WAV. Arcs run for the estimated independent
+    // slice duration in song time, so multiple rings can overlap visually.
+    for (int slot = 0; slot < PhraserAudioProcessor::numSlots; ++slot)
+    {
+        const float radius = firstRadius + spacing * slot;
+        const int playing = processor.getVoiceCountForSlot(slot);
+        const auto colour = trackColour(slot);
+        g.setColour(line.withAlpha(0.48f));
+        g.drawEllipse(cx - radius, cy - radius, radius * 2.0f, radius * 2.0f, 1.3f);
+
+        const auto source = processor.getSampleSnapshot(slot);
+        if (source)
+        {
+            for (int step = 0; step < active; ++step)
+            {
+                const auto& e = phrase.events[static_cast<size_t>(step)];
+                if (!e.enabled || e.slot != slot) continue;
+                const auto* pitchParameter = processor.parameters.getRawParameterValue("pitch");
+                const double semitones = juce::jlimit(-24.0, 24.0,
+                    static_cast<double>(e.semitones) + pitchParameter->load());
+                const double seconds = e.length * source->audio.getNumSamples()
+                    / source->sampleRate / std::pow(2.0, semitones / 12.0);
+                const float start = (static_cast<float>(step) / active) * twoPi;
+                const float span = juce::jlimit(0.012f, twoPi - 0.03f,
+                    static_cast<float>(seconds / phraseSeconds) * twoPi);
+                juce::Path arc;
+                arc.addCentredArc(cx, cy, radius, radius, 0.0f,
+                                 start, start + span, true);
+                g.setColour(colour.withAlpha(playing > 0 ? 0.9f : 0.58f));
+                g.strokePath(arc, juce::PathStrokeType(4.4f));
+            }
+        }
+        if (playing > 0)
+        {
+            g.setColour(colour.withAlpha(0.94f));
+            g.drawEllipse(cx - radius, cy - radius, radius * 2.0f, radius * 2.0f, 2.6f);
+        }
+    }
+
+    const int current = processor.getCurrentStep();
+    if (current >= 0 && active > 0)
+    {
+        const float angle = (static_cast<float>(current) / active) * twoPi;
+        g.setColour(acid.withAlpha(0.8f));
+        g.drawLine(cx, cy, cx + std::sin(angle) * 148.0f,
+                   cy - std::cos(angle) * 148.0f, 1.5f);
+    }
+
+    g.setColour(surface);
+    g.fillEllipse(cx - 39.0f, cy - 39.0f, 78.0f, 78.0f);
+    g.setColour(bright);
+    g.setFont(juce::FontOptions(22.0f, juce::Font::bold));
+    g.drawText(juce::String(processor.getActiveVoiceCount()), static_cast<int>(cx - 34),
+               static_cast<int>(cy - 26), 68, 33, juce::Justification::centred);
+    g.setColour(muted);
+    g.setFont(juce::FontOptions(10.0f));
+    g.drawText("VOICES", static_cast<int>(cx - 35), static_cast<int>(cy + 11),
+               70, 19, juce::Justification::centred);
+    g.setColour(muted);
+    g.drawText("RINGS: WAV 01 INNER -> WAV 16 OUTER", 1048, 1084, 365, 18,
+               juce::Justification::centred);
 }
 
 void PhraserAudioProcessorEditor::paintPanel(juce::Graphics& g)
@@ -398,7 +484,7 @@ void PhraserAudioProcessorEditor::paint(juce::Graphics& g)
     g.fillRect(28, 71, 92, 3);
     g.setColour(muted);
     g.setFont(juce::FontOptions(11.0f));
-    g.drawText("WAVEFORM MATRIX  /  v0.5", 250, 36, 300, 20,
+    g.drawText("WAVEFORM MATRIX + OVERLAP ORBIT  /  v0.6", 250, 36, 300, 20,
                juce::Justification::centredLeft);
     g.drawText("16 SOURCES   /   1-4 BARS   /   8 OR 16 STEPS PER BAR",
                612, 36, 570, 20, juce::Justification::centredRight);
@@ -412,8 +498,18 @@ void PhraserAudioProcessorEditor::paint(juce::Graphics& g)
     paintPanel(g);
 
     g.setColour(surface);
-    g.fillRoundedRectangle(20.0f, 753.0f, 1417.0f, 181.0f, 5.0f);
+    g.fillRoundedRectangle(20.0f, 753.0f, 990.0f, 181.0f, 5.0f);
     paintSequence(g);
+    paintOverlapOrbit(g);
+    g.setColour(bright);
+    g.setFont(juce::FontOptions(14.0f, juce::Font::bold));
+    g.drawText("INDEPENDENT VOICES", 34, 954, 460, 22, juce::Justification::centredLeft);
+    g.setFont(juce::FontOptions(12.0f));
+    g.setColour(muted);
+    g.drawText("Each sample keeps playing for its full slice duration, even after the next step.",
+               34, 980, 890, 30, juce::Justification::centredLeft);
+    g.drawText("Colored arcs in the circle show scheduled overlaps; brighter rings show voices active now.",
+               34, 1010, 930, 28, juce::Justification::centredLeft);
 }
 
 void PhraserAudioProcessorEditor::resized()
@@ -439,7 +535,7 @@ void PhraserAudioProcessorEditor::resized()
         saveButtons[static_cast<size_t>(i)].setBounds(1046 + i * 187, 699, 90, 26);
         recallButtons[static_cast<size_t>(i)].setBounds(1141 + i * 187, 699, 86, 26);
     }
-    status.setBounds(24, 936, 1400, 14);
+    status.setBounds(24, 1120, 1400, 22);
 }
 
 void PhraserAudioProcessorEditor::mouseDown(const juce::MouseEvent& event)
@@ -454,9 +550,9 @@ void PhraserAudioProcessorEditor::mouseDown(const juce::MouseEvent& event)
         return;
     }
 
-    if (event.y < 797 || event.y > 910 || event.x < 34 || event.x > 1419)
+    if (event.y < 797 || event.y > 910 || event.x < 34 || event.x > 997)
         return;
-    const int column = juce::jlimit(0, 15, static_cast<int>((event.x - 34) / 86.5f));
+    const int column = juce::jlimit(0, 15, static_cast<int>((event.x - 34) / 60.0f));
     const int row = juce::jlimit(0, 3, (event.y - 797) / 30);
     const int step = row * 16 + column;
     if (step >= processor.getActiveSteps()) return;
@@ -464,5 +560,5 @@ void PhraserAudioProcessorEditor::mouseDown(const juce::MouseEvent& event)
     if (event.mods.isRightButtonDown()) processor.toggleLock(step);
     else if (event.mods.isShiftDown()) processor.setStepSlot(step, selectedSlot);
     else processor.toggleStep(step);
-    repaint(20, 750, 1418, 184);
+    repaint(20, 750, 1418, 370);
 }
