@@ -3,63 +3,71 @@
 
 namespace
 {
-const juce::Colour backdrop { 0xff10141b };
-const juce::Colour panel { 0xff1b212c };
-const juce::Colour muted { 0xff81909f };
-const juce::Colour white { 0xffedf4f8 };
-const std::array<juce::Colour, 4> palette {
-    juce::Colour { 0xff5dd8ca }, juce::Colour { 0xffffbf71 },
-    juce::Colour { 0xffaa9cf6 }, juce::Colour { 0xfff28fac }
-};
+const juce::Colour ink { 0xff0b1015 };
+const juce::Colour surface { 0xff161d25 };
+const juce::Colour inset { 0xff11181f };
+const juce::Colour line { 0xff283440 };
+const juce::Colour muted { 0xff82919d };
+const juce::Colour bright { 0xffeff4f2 };
+const juce::Colour acid { 0xffd5fa66 };
+const juce::Colour amber { 0xffffbb76 };
 
-class OrbitLookAndFeel final : public juce::LookAndFeel_V4
+juce::Colour trackColour(int slot)
+{
+    // Four related colour families provide separation without a rainbow UI.
+    const std::array<juce::Colour, 4> families {
+        juce::Colour { 0xff6ac7bd }, juce::Colour { 0xffc9af85 },
+        juce::Colour { 0xff9fa7d6 }, juce::Colour { 0xffbd8caa }
+    };
+    return families[static_cast<size_t>(slot / 4)].interpolatedWith(bright, (slot % 4) * 0.055f);
+}
+
+class StudioLookAndFeel final : public juce::LookAndFeel_V4
 {
 public:
-    OrbitLookAndFeel()
+    StudioLookAndFeel()
     {
-        setColour(juce::Slider::textBoxTextColourId, white);
-        setColour(juce::Slider::textBoxBackgroundColourId, panel);
-        setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+        setColour(juce::Slider::textBoxTextColourId, bright);
+        setColour(juce::Slider::textBoxBackgroundColourId, inset);
+        setColour(juce::Slider::textBoxOutlineColourId, line);
         setColour(juce::Label::textColourId, muted);
-        setColour(juce::TextButton::textColourOffId, white);
+        setColour(juce::TextButton::textColourOffId, bright);
     }
+
     void drawRotarySlider(juce::Graphics& g, int x, int y, int width, int height,
-                          float position, float start, float end,
+                          float position, float startAngle, float endAngle,
                           juce::Slider&) override
     {
-        const float radius = juce::jmin(width, height) * 0.34f;
-        const auto cx = static_cast<float>(x + width / 2);
-        const auto cy = static_cast<float>(y + height / 2);
-        const float thickness = 5.0f;
-        juce::Path track, active;
-        track.addCentredArc(cx, cy, radius, radius, 0.0f, start, end, true);
-        active.addCentredArc(cx, cy, radius, radius, 0.0f,
-                             start, start + position * (end - start), true);
-        g.setColour(juce::Colour { 0xff35404d });
-        g.strokePath(track, juce::PathStrokeType(thickness, juce::PathStrokeType::curved,
-                                                juce::PathStrokeType::rounded));
-        g.setColour(juce::Colour { 0xff64d9c9 });
-        g.strokePath(active, juce::PathStrokeType(thickness, juce::PathStrokeType::curved,
-                                                 juce::PathStrokeType::rounded));
-        g.setColour(juce::Colour { 0xff26313b });
-        g.fillEllipse(cx - radius + 11.0f, cy - radius + 11.0f,
-                      (radius - 11.0f) * 2.0f, (radius - 11.0f) * 2.0f);
-        const float angle = start + position * (end - start);
-        const float markRadius = radius - 13.0f;
-        g.setColour(white);
-        g.drawLine(cx + std::sin(angle) * (markRadius - 7.0f),
-                   cy - std::cos(angle) * (markRadius - 7.0f),
-                   cx + std::sin(angle) * markRadius,
-                   cy - std::cos(angle) * markRadius, 2.2f);
+        const float cx = static_cast<float>(x + width / 2);
+        const float cy = static_cast<float>(y + height / 2);
+        const float radius = juce::jmin(width, height) * 0.35f;
+        juce::Path track, amount;
+        track.addCentredArc(cx, cy, radius, radius, 0.0f, startAngle, endAngle, true);
+        amount.addCentredArc(cx, cy, radius, radius, 0.0f,
+                            startAngle, startAngle + position * (endAngle - startAngle), true);
+        g.setColour(line);
+        g.strokePath(track, juce::PathStrokeType(4.0f));
+        g.setColour(acid);
+        g.strokePath(amount, juce::PathStrokeType(4.0f));
+        g.setColour(inset);
+        g.fillEllipse(cx - radius + 8.0f, cy - radius + 8.0f,
+                      2.0f * (radius - 8.0f), 2.0f * (radius - 8.0f));
+        const float angle = startAngle + position * (endAngle - startAngle);
+        g.setColour(bright);
+        g.drawLine(cx + std::sin(angle) * (radius - 12.0f),
+                   cy - std::cos(angle) * (radius - 12.0f),
+                   cx + std::sin(angle) * (radius - 5.0f),
+                   cy - std::cos(angle) * (radius - 5.0f), 2.0f);
     }
+
     void drawButtonBackground(juce::Graphics& g, juce::Button& button,
-                              const juce::Colour& base, bool over, bool down) override
+                              const juce::Colour& colour, bool hover, bool down) override
     {
-        auto r = button.getLocalBounds().toFloat().reduced(1.0f);
-        g.setColour(base.brighter(down ? 0.16f : (over ? 0.09f : 0.0f)));
-        g.fillRoundedRectangle(r, 9.0f);
-        g.setColour(juce::Colours::white.withAlpha(over ? 0.18f : 0.07f));
-        g.drawRoundedRectangle(r, 9.0f, 1.0f);
+        auto bounds = button.getLocalBounds().toFloat().reduced(0.5f);
+        g.setColour(colour.brighter(down ? 0.12f : hover ? 0.055f : 0.0f));
+        g.fillRoundedRectangle(bounds, 2.0f);
+        g.setColour(hover ? acid.withAlpha(0.6f) : line);
+        g.drawRoundedRectangle(bounds, 2.0f, 1.0f);
     }
 };
 }
@@ -67,79 +75,106 @@ public:
 PhraserAudioProcessorEditor::PhraserAudioProcessorEditor(PhraserAudioProcessor& p)
     : AudioProcessorEditor(&p), processor(p)
 {
-    theme = std::make_unique<OrbitLookAndFeel>();
+    theme = std::make_unique<StudioLookAndFeel>();
     setLookAndFeel(theme.get());
-    setSize(1100, 730);
+    setSize(1460, 950);
 
-    generateButton.setColour(juce::TextButton::buttonColourId, juce::Colour { 0xff1c766d });
+    generateButton.setColour(juce::TextButton::buttonColourId, juce::Colour { 0xff344c28 });
     generateButton.onClick = [this]
     {
         processor.randomizePattern();
-        repaint();
         status.setText("A new phrase has been generated", juce::dontSendNotification);
+        repaint();
     };
     addAndMakeVisible(generateButton);
 
-    for (int i = 0; i < 4; ++i)
+    for (int i = 0; i < PhraserAudioProcessor::numSlots; ++i)
     {
         auto& button = slotButtons[static_cast<size_t>(i)];
-        button.setColour(juce::TextButton::buttonColourId, juce::Colour { 0xff252d38 });
-        button.onClick = [this, i] { loadSlot(i); };
+        button.setColour(juce::TextButton::buttonColourId, juce::Colour { 0xff202a33 });
+        button.onClick = [this, i]
+        {
+            selectedSlot = i;
+            updateRanges();
+            updateSlotButtons();
+            loadSlot(i);
+        };
         addAndMakeVisible(button);
     }
+
     for (int i = 0; i < 2; ++i)
     {
-        auto& keep = keepButtons[static_cast<size_t>(i)];
+        auto& save = saveButtons[static_cast<size_t>(i)];
         auto& recall = recallButtons[static_cast<size_t>(i)];
-        keep.setButtonText("SAVE " + juce::String(i == 0 ? "A" : "B"));
-        recall.setButtonText("RECALL " + juce::String(i == 0 ? "A" : "B"));
-        keep.setColour(juce::TextButton::buttonColourId, juce::Colour { 0xff354b59 });
-        recall.setColour(juce::TextButton::buttonColourId, juce::Colour { 0xff243b44 });
-        keep.onClick = [this, i]
+        const auto memory = juce::String(i == 0 ? "A" : "B");
+        save.setButtonText("KEEP " + memory);
+        recall.setButtonText("RECALL " + memory);
+        save.setColour(juce::TextButton::buttonColourId, juce::Colour { 0xff283a31 });
+        recall.setColour(juce::TextButton::buttonColourId, juce::Colour { 0xff273743 });
+        save.onClick = [this, i]
         {
             processor.saveKeep(i);
-            status.setText("Phrase saved to " + juce::String(i == 0 ? "A" : "B"),
+            status.setText("Stored phrase in Keep " + juce::String(i == 0 ? "A" : "B"),
                            juce::dontSendNotification);
         };
         recall.onClick = [this, i]
         {
             processor.recallKeep(i);
-            repaint();
-            status.setText("Phrase recalled from " + juce::String(i == 0 ? "A" : "B"),
+            status.setText("Recalled Keep " + juce::String(i == 0 ? "A" : "B"),
                            juce::dontSendNotification);
+            repaint();
         };
-        addAndMakeVisible(keep);
+        addAndMakeVisible(save);
         addAndMakeVisible(recall);
     }
 
     constexpr std::array<const char*, controlCount> ids {
-        "density", "slice", "breaks", "swing", "gain", "fade",
-        "transient", "variation", "pitch", "pitchspread"
+        "density", "slice", "breaks", "swing",
+        "gain", "fade", "transient", "variation",
+        "pitch", "pitchspread", "bars", "division"
     };
-    constexpr std::array<const char*, controlCount> names {
-        "DENSITY", "SLICE SIZE", "BREAKS", "SWING", "OUTPUT", "FADE",
-        "TRANSIENT", "VARIATION", "PITCH", "PITCH SPREAD"
+    constexpr std::array<const char*, controlCount> titles {
+        "DENSITY", "SIZE", "BREAKS", "SWING",
+        "OUTPUT", "FADE", "SNAP", "VARIATION",
+        "PITCH", "SPREAD", "BARS", "STEPS/BAR"
     };
     for (int i = 0; i < controlCount; ++i)
     {
         auto& slider = sliders[static_cast<size_t>(i)];
         slider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-        slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 88, 23);
+        slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 74, 20);
         addAndMakeVisible(slider);
         auto& label = sliderLabels[static_cast<size_t>(i)];
-        label.setText(names[static_cast<size_t>(i)], juce::dontSendNotification);
+        label.setText(titles[static_cast<size_t>(i)], juce::dontSendNotification);
         label.setJustificationType(juce::Justification::centred);
-        label.setColour(juce::Label::textColourId, muted);
         addAndMakeVisible(label);
         attachments[static_cast<size_t>(i)] =
             std::make_unique<SliderAttachment>(processor.parameters, ids[static_cast<size_t>(i)], slider);
     }
 
-    status.setColour(juce::Label::textColourId, muted);
-    status.setText("Load WAV samples and press NEW PHRASE. Play from Live's transport.",
+    constexpr std::array<const char*, 4> names {
+        "START FROM", "START TO", "LENGTH MIN", "LENGTH MAX"
+    };
+    for (int i = 0; i < 4; ++i)
+    {
+        auto& slider = rangeSliders[static_cast<size_t>(i)];
+        slider.setSliderStyle(juce::Slider::LinearHorizontal);
+        slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 53, 20);
+        slider.setRange(i < 2 ? 0.0 : 0.005, 1.0, 0.005);
+        slider.onValueChange = [this] { applyRanges(); };
+        addAndMakeVisible(slider);
+        auto& label = rangeLabels[static_cast<size_t>(i)];
+        label.setText(names[static_cast<size_t>(i)], juce::dontSendNotification);
+        label.setJustificationType(juce::Justification::centredLeft);
+        addAndMakeVisible(label);
+    }
+
+    status.setText("Select a WAV lane, then edit its start/length random ranges.",
                    juce::dontSendNotification);
+    status.setColour(juce::Label::textColourId, muted);
     addAndMakeVisible(status);
-    refreshSampleButtons();
+    updateRanges();
+    updateSlotButtons();
     startTimerHz(24);
 }
 
@@ -149,184 +184,285 @@ PhraserAudioProcessorEditor::~PhraserAudioProcessorEditor()
     setLookAndFeel(nullptr);
 }
 
-void PhraserAudioProcessorEditor::refreshSampleButtons()
+void PhraserAudioProcessorEditor::updateSlotButtons()
 {
+    for (int i = 0; i < PhraserAudioProcessor::numSlots; ++i)
+    {
+        auto& button = slotButtons[static_cast<size_t>(i)];
+        button.setButtonText(juce::String(i + 1).paddedLeft('0', 2)
+                             + "   " + processor.getSlotName(i).substring(0, 14));
+        button.setColour(juce::TextButton::buttonColourId,
+            i == selectedSlot ? juce::Colour { 0xff36443b } : juce::Colour { 0xff202a33 });
+    }
+}
+
+void PhraserAudioProcessorEditor::updateRanges()
+{
+    const auto settings = processor.getSlotSettings(selectedSlot);
+    const std::array<float, 4> values {
+        settings.startMin, settings.startMax, settings.lengthMin, settings.lengthMax
+    };
     for (int i = 0; i < 4; ++i)
-        slotButtons[static_cast<size_t>(i)].setButtonText(
-            juce::String(i + 1) + "  " + processor.getSlotName(i).substring(0, 23));
+        rangeSliders[static_cast<size_t>(i)].setValue(
+            values[static_cast<size_t>(i)], juce::dontSendNotification);
+    repaint(1025, 454, 425, 183);
+}
+
+void PhraserAudioProcessorEditor::applyRanges()
+{
+    PhraserSlotSettings settings;
+    settings.startMin = static_cast<float>(rangeSliders[0].getValue());
+    settings.startMax = static_cast<float>(rangeSliders[1].getValue());
+    settings.lengthMin = static_cast<float>(rangeSliders[2].getValue());
+    settings.lengthMax = static_cast<float>(rangeSliders[3].getValue());
+    processor.setSlotSettings(selectedSlot, settings);
+    repaint(193, 101, 815, 635);
 }
 
 void PhraserAudioProcessorEditor::loadSlot(int index)
 {
-    chooser = std::make_unique<juce::FileChooser>("Load WAV for orbit " + juce::String(index + 1),
-                                                   juce::File {}, "*.wav");
+    chooser = std::make_unique<juce::FileChooser>(
+        "WAV sample " + juce::String(index + 1), juce::File {}, "*.wav");
     const juce::Component::SafePointer<PhraserAudioProcessorEditor> safe(this);
-    chooser->launchAsync(juce::FileBrowserComponent::openMode |
-                             juce::FileBrowserComponent::canSelectFiles,
-        [safe, index](const juce::FileChooser& fc)
+    chooser->launchAsync(juce::FileBrowserComponent::openMode
+                            | juce::FileBrowserComponent::canSelectFiles,
+        [safe, index](const juce::FileChooser& result)
         {
             if (safe == nullptr) return;
-            const auto file = fc.getResult();
+            const auto file = result.getResult();
             if (file == juce::File {}) return;
-            const bool ok = safe->processor.loadWavFile(index, file);
-            safe->refreshSampleButtons();
+            const bool loaded = safe->processor.loadWavFile(index, file);
+            safe->updateSlotButtons();
+            safe->status.setText(loaded
+                ? "Loaded " + file.getFileName() + " / " +
+                  juce::String(safe->processor.getTransientCount(index)) + " onset marks"
+                : "WAV load failed (unsupported or too long)",
+                juce::dontSendNotification);
             safe->repaint();
-            safe->status.setText(ok ? "Loaded " + file.getFileName() + " / " +
-                                 juce::String(safe->processor.getTransientCount(index)) + " onsets"
-                                  : "Could not load WAV",
-                                  juce::dontSendNotification);
         });
 }
 
 void PhraserAudioProcessorEditor::timerCallback()
 {
-    const int active = processor.getCurrentStep();
-    if (active != cachedStep)
+    const int current = processor.getCurrentStep();
+    if (current != lastStep)
     {
-        cachedStep = active;
-        repaint(15, 80, 585, 565);
+        lastStep = current;
+        repaint(20, 765, 1418, 155);
+    }
+    repaint(190, 106, 826, 630);
+}
+
+void PhraserAudioProcessorEditor::paintLanes(juce::Graphics& g)
+{
+    constexpr float x0 = 207.0f;
+    constexpr float x1 = 1005.0f;
+    constexpr float width = x1 - x0;
+
+    for (int slot = 0; slot < PhraserAudioProcessor::numSlots; ++slot)
+    {
+        const float y = 116.0f + 39.0f * slot;
+        const float mid = y + 16.0f;
+        const bool selected = slot == selectedSlot;
+        g.setColour(selected ? juce::Colour { 0xff212c32 } : inset);
+        g.fillRect(27.0f, y - 2.0f, 978.0f, 36.0f);
+        g.setColour(line);
+        g.drawHorizontalLine(static_cast<int>(y + 35), 29.0f, 1006.0f);
+        g.setColour(trackColour(slot));
+        g.fillRect(27.0f, y + 2.0f, 3.0f, 27.0f);
+
+        auto sample = processor.getSampleSnapshot(slot);
+        if (!sample)
+        {
+            g.setColour(muted.withAlpha(0.35f));
+            g.drawLine(x0, mid, x1, mid, 1.0f);
+            continue;
+        }
+
+        const auto settings = processor.getSlotSettings(slot);
+        const float from = x0 + width * settings.startMin;
+        const float to = x0 + width * settings.startMax;
+        g.setColour(amber.withAlpha(selected ? 0.15f : 0.07f));
+        g.fillRect(from, y + 1.0f, juce::jmax(1.0f, to - from), 30.0f);
+        if (selected)
+        {
+            g.setColour(amber.withAlpha(0.8f));
+            g.drawVerticalLine(static_cast<int>(from), y + 1.0f, y + 31.0f);
+            g.drawVerticalLine(static_cast<int>(to), y + 1.0f, y + 31.0f);
+        }
+
+        g.setColour(trackColour(slot).withAlpha(selected ? 1.0f : 0.7f));
+        for (int i = 0; i < PhraserAudioProcessor::waveformPoints; ++i)
+        {
+            const float x = x0 + width * (i + 0.5f)
+                                     / PhraserAudioProcessor::waveformPoints;
+            const float amplitude = sample->waveform[static_cast<size_t>(i)] * 13.5f;
+            g.drawVerticalLine(static_cast<int>(x), mid - amplitude, mid + amplitude);
+        }
+
+        const auto position = processor.getPlayPosition(slot);
+        if (position >= 0.0f)
+        {
+            const float playX = x0 + width * juce::jlimit(0.0f, 1.0f, position);
+            g.setColour(acid);
+            g.drawVerticalLine(static_cast<int>(playX), y - 1.0f, y + 33.0f);
+            g.fillEllipse(playX - 2.5f, y + 30.5f, 5.0f, 5.0f);
+        }
     }
 }
 
-void PhraserAudioProcessorEditor::paintOrbit(juce::Graphics& g)
+void PhraserAudioProcessorEditor::paintSequence(juce::Graphics& g)
 {
-    const auto snapshot = processor.getPatternSnapshot();
-    // Concentric 16-step bands, one band for each loaded sample.
-    const float cx = orbitX;
-    const float cy = orbitY;
-    g.setColour(juce::Colour { 0xff19222c });
-    g.fillEllipse(cx - 246.0f, cy - 246.0f, 492.0f, 492.0f);
-    for (int layer = 3; layer >= 0; --layer)
-    {
-        const float radius = 133.0f + 29.0f * static_cast<float>(layer);
-        for (int step = 0; step < 16; ++step)
-        {
-            const auto& event = snapshot.events[static_cast<size_t>(step)];
-            const bool selected = event.enabled && event.slot == layer;
-            const bool playing = cachedStep == step;
-            const float a0 = static_cast<float>(step) * juce::MathConstants<float>::twoPi / 16.0f + 0.026f;
-            const float a1 = static_cast<float>(step + 1) * juce::MathConstants<float>::twoPi / 16.0f - 0.026f;
-            juce::Path arc;
-            arc.addCentredArc(cx, cy, radius, radius, 0.0f, a0, a1, true);
-            auto colour = selected ? palette[static_cast<size_t>(layer)] : juce::Colour { 0xff35404c };
-            if (selected && playing) colour = colour.brighter(0.55f);
-            g.setColour(colour.withAlpha(selected ? 0.98f : 0.65f));
-            g.strokePath(arc, juce::PathStrokeType(playing && selected ? 17.0f : 13.0f,
-                                                  juce::PathStrokeType::curved,
-                                                  juce::PathStrokeType::rounded));
-            if (event.locked)
-            {
-                const auto mid = (a0 + a1) * 0.5f;
-                const float d = radius + 12.0f;
-                g.setColour(juce::Colour { 0xffffe4a0 });
-                g.fillEllipse(cx + std::sin(mid) * d - 2.0f,
-                              cy - std::cos(mid) * d - 2.0f, 4.0f, 4.0f);
-            }
-        }
-    }
-
-    g.setColour(juce::Colour { 0xff26313d });
-    g.fillEllipse(cx - 100.0f, cy - 100.0f, 200.0f, 200.0f);
-    g.setColour(juce::Colour { 0xff43525f });
-    g.drawEllipse(cx - 100.0f, cy - 100.0f, 200.0f, 200.0f, 1.2f);
-    g.setColour(white);
-    g.setFont(juce::FontOptions(23.0f, juce::Font::bold));
-    g.drawText("PHRASER", static_cast<int>(cx - 98), static_cast<int>(cy - 32),
-               196, 35, juce::Justification::centred);
+    const auto pattern = processor.getPatternSnapshot();
+    const int active = processor.getActiveSteps();
+    const int division = processor.getStepsPerBar();
+    const int playing = processor.getCurrentStep();
+    g.setColour(bright);
+    g.setFont(juce::FontOptions(13.0f, juce::Font::bold));
+    g.drawText("PHRASE GRID", 34, 768, 135, 23, juce::Justification::centredLeft);
     g.setColour(muted);
     g.setFont(juce::FontOptions(11.0f));
-    g.drawText(cachedStep < 0 ? "READY / 16 STEPS"
-                               : "STEP " + juce::String(cachedStep + 1).paddedLeft('0', 2) + " / 16",
-               static_cast<int>(cx - 95), static_cast<int>(cy + 8),
-               190, 24, juce::Justification::centred);
-    g.setColour(muted.withAlpha(0.85f));
-    g.setFont(juce::FontOptions(11.0f));
-    g.drawText("CLICK ARC  mute / unmute",
-               48, 609, 245, 20, juce::Justification::centredLeft);
-    g.drawText("RIGHT CLICK  lock   |   SHIFT CLICK  change layer",
-               48, 630, 465, 20, juce::Justification::centredLeft);
+    g.drawText(juce::String(active) + " STEPS  /  " +
+               juce::String(active / division) + " BARS  /  " +
+               juce::String(division) + " STEPS PER BAR",
+               174, 768, 440, 23, juce::Justification::centredLeft);
+    g.drawText("CLICK: MUTE   SHIFT+CLICK: ROUTE TO SELECTED WAV   RIGHT-CLICK: LOCK",
+               677, 768, 722, 23, juce::Justification::centredRight);
+
+    // 4 rows of 16 cells. In 8-step mode, each physical row is two bars.
+    for (int i = 0; i < PhraserAudioProcessor::numSteps; ++i)
+    {
+        const int row = i / 16;
+        const int col = i % 16;
+        const float x = 34.0f + col * 86.5f;
+        const float y = 797.0f + row * 30.0f;
+        const bool visible = i < active;
+        const auto& event = pattern.events[static_cast<size_t>(i)];
+        const bool playingNow = visible && i == playing;
+
+        auto colour = visible && event.enabled
+            ? trackColour(juce::jlimit(0, 15, event.slot)).withAlpha(0.8f)
+            : juce::Colour { 0xff242f39 };
+        if (!visible) colour = juce::Colour { 0xff151e26 };
+        g.setColour(colour);
+        g.fillRoundedRectangle(x, y, 81.0f, 22.0f, 2.0f);
+        if (playingNow)
+        {
+            g.setColour(acid);
+            g.drawRoundedRectangle(x, y, 81.0f, 22.0f, 2.0f, 2.0f);
+        }
+        if (event.locked && visible)
+        {
+            g.setColour(amber);
+            g.fillRect(x + 74.0f, y + 2.0f, 4.0f, 4.0f);
+        }
+        g.setColour(visible && event.enabled ? ink : muted.withAlpha(0.6f));
+        g.setFont(juce::FontOptions(10.0f, juce::Font::bold));
+        g.drawText(juce::String(i + 1).paddedLeft('0', 2)
+                   + (visible && event.enabled ? "  S" + juce::String(event.slot + 1) : ""),
+                   static_cast<int>(x + 6), static_cast<int>(y),
+                   65, 22, juce::Justification::centredLeft);
+    }
 }
 
 void PhraserAudioProcessorEditor::paintPanel(juce::Graphics& g)
 {
-    g.setColour(panel);
-    g.fillRoundedRectangle(630.0f, 77.0f, 447.0f, 625.0f, 18.0f);
-    g.setColour(juce::Colour { 0xff384551 });
-    g.drawRoundedRectangle(630.0f, 77.0f, 447.0f, 625.0f, 18.0f, 1.0f);
-    g.setColour(white);
-    g.setFont(juce::FontOptions(14.0f, juce::Font::bold));
-    g.drawText("SHAPE / TIMING / PITCH", 653, 92, 310, 27,
+    g.setColour(surface);
+    g.fillRoundedRectangle(1027.0f, 100.0f, 410.0f, 631.0f, 5.0f);
+    g.setColour(line);
+    g.drawRoundedRectangle(1027.0f, 100.0f, 410.0f, 631.0f, 5.0f, 1.0f);
+    g.setColour(bright);
+    g.setFont(juce::FontOptions(13.0f, juce::Font::bold));
+    g.drawText("ENGINE PARAMETERS", 1046, 105, 358, 24, juce::Justification::centredLeft);
+    g.setColour(line);
+    g.drawLine(1046.0f, 440.0f, 1417.0f, 440.0f);
+    g.setColour(bright);
+    g.drawText("SAMPLE " + juce::String(selectedSlot + 1).paddedLeft('0', 2)
+               + "  /  RANDOM WINDOWS", 1046, 447, 363, 25,
                juce::Justification::centredLeft);
     g.setColour(muted);
-    g.setFont(juce::FontOptions(11.0f));
-    g.drawText("GENERATIVE CONTROLS", 653, 121, 300, 17,
-               juce::Justification::centredLeft);
-    g.setColour(juce::Colour { 0xff35424e });
-    g.drawLine(653.0f, 460.0f, 1052.0f, 460.0f, 1.0f);
-    g.setColour(white);
-    g.setFont(juce::FontOptions(13.0f, juce::Font::bold));
-    g.drawText("SAMPLE LAYERS", 653, 472, 320, 24, juce::Justification::centredLeft);
-    for (int i = 0; i < 4; ++i)
-    {
-        g.setColour(palette[static_cast<size_t>(i)]);
-        g.fillRoundedRectangle(653.0f, 500.0f + 38.0f * i, 5.0f, 30.0f, 2.5f);
-    }
+    g.setFont(juce::FontOptions(10.0f));
+    g.drawText("START RANGE  =  portion of WAV available to the generator",
+               1046, 619, 367, 17, juce::Justification::centredLeft);
+    g.drawText("LENGTH RANGE =  random slice duration in WAV proportions",
+               1046, 634, 367, 17, juce::Justification::centredLeft);
 }
 
 void PhraserAudioProcessorEditor::paint(juce::Graphics& g)
 {
-    g.fillAll(backdrop);
-    g.setColour(juce::Colour { 0xff17202a });
-    g.fillEllipse(-155.0f, -215.0f, 610.0f, 610.0f);
-    g.setColour(white);
-    g.setFont(juce::FontOptions(24.0f, juce::Font::bold));
-    g.drawText("PHRASER", 29, 18, 220, 38, juce::Justification::centredLeft);
+    g.fillAll(ink);
+    g.setColour(bright);
+    g.setFont(juce::FontOptions(28.0f, juce::Font::bold));
+    g.drawText("PHRASER", 28, 20, 220, 43, juce::Justification::centredLeft);
+    g.setColour(acid);
+    g.fillRect(28, 71, 92, 3);
     g.setColour(muted);
-    g.setFont(juce::FontOptions(12.0f));
-    g.drawText("ORBIT ENGINE  /  v0.4", 184, 29, 260, 24,
+    g.setFont(juce::FontOptions(11.0f));
+    g.drawText("WAVEFORM MATRIX  /  v0.5", 250, 36, 300, 20,
                juce::Justification::centredLeft);
-    g.setColour(juce::Colour { 0xff32414d });
-    g.drawLine(28.0f, 72.0f, 1073.0f, 72.0f, 1.0f);
-    paintOrbit(g);
+    g.drawText("16 SOURCES   /   1-4 BARS   /   8 OR 16 STEPS PER BAR",
+               612, 36, 570, 20, juce::Justification::centredRight);
+    g.setColour(line);
+    g.drawHorizontalLine(88, 27.0f, 1435.0f);
+    g.setColour(bright);
+    g.setFont(juce::FontOptions(13.0f, juce::Font::bold));
+    g.drawText("SAMPLE / WAVEFORMS / PLAYHEAD", 29, 94, 562, 20,
+               juce::Justification::centredLeft);
+    paintLanes(g);
     paintPanel(g);
+
+    g.setColour(surface);
+    g.fillRoundedRectangle(20.0f, 753.0f, 1417.0f, 181.0f, 5.0f);
+    paintSequence(g);
 }
 
 void PhraserAudioProcessorEditor::resized()
 {
-    generateButton.setBounds(445, 22, 166, 38);
-    const int knobWidth = 77;
+    for (int i = 0; i < PhraserAudioProcessor::numSlots; ++i)
+        slotButtons[static_cast<size_t>(i)].setBounds(39, 120 + 39 * i, 148, 26);
+
     for (int i = 0; i < controlCount; ++i)
     {
-        const int x = 649 + (i % 5) * 82;
-        const int y = 154 + (i / 5) * 144;
-        sliderLabels[static_cast<size_t>(i)].setBounds(x - 2, y, knobWidth + 6, 24);
-        sliders[static_cast<size_t>(i)].setBounds(x, y + 24, knobWidth, 107);
+        const int x = 1045 + (i % 4) * 97;
+        const int y = 131 + (i / 4) * 102;
+        sliderLabels[static_cast<size_t>(i)].setBounds(x, y, 89, 20);
+        sliders[static_cast<size_t>(i)].setBounds(x + 4, y + 19, 82, 76);
     }
     for (int i = 0; i < 4; ++i)
-        slotButtons[static_cast<size_t>(i)].setBounds(670, 500 + 38 * i, 382, 31);
+    {
+        rangeLabels[static_cast<size_t>(i)].setBounds(1047, 480 + 35 * i, 106, 27);
+        rangeSliders[static_cast<size_t>(i)].setBounds(1154, 480 + 35 * i, 259, 27);
+    }
+    generateButton.setBounds(1046, 657, 367, 32);
     for (int i = 0; i < 2; ++i)
     {
-        keepButtons[static_cast<size_t>(i)].setBounds(55 + i * 255, 662, 116, 31);
-        recallButtons[static_cast<size_t>(i)].setBounds(177 + i * 255, 662, 116, 31);
+        saveButtons[static_cast<size_t>(i)].setBounds(1046 + i * 187, 699, 90, 26);
+        recallButtons[static_cast<size_t>(i)].setBounds(1141 + i * 187, 699, 86, 26);
     }
-    status.setBounds(642, 668, 422, 25);
+    status.setBounds(24, 936, 1400, 14);
 }
 
 void PhraserAudioProcessorEditor::mouseDown(const juce::MouseEvent& event)
 {
-    const float dx = static_cast<float>(event.x) - orbitX;
-    const float dy = static_cast<float>(event.y) - orbitY;
-    const float radius = std::sqrt(dx * dx + dy * dy);
-    if (radius < 117.0f || radius > 236.0f) return;
+    // Click a waveform lane to inspect its independent start/duration range.
+    if (event.x >= 193 && event.x <= 1005 && event.y >= 114 && event.y < 740)
+    {
+        selectedSlot = juce::jlimit(0, 15, (event.y - 116) / 39);
+        updateRanges();
+        updateSlotButtons();
+        repaint();
+        return;
+    }
 
-    const auto layer = juce::jlimit(0, 3, static_cast<int>(std::lround((radius - 133.0f) / 29.0f)));
-    float angle = std::atan2(dy, dx) + juce::MathConstants<float>::halfPi;
-    if (angle < 0.0f) angle += juce::MathConstants<float>::twoPi;
-    const auto step = juce::jlimit(0, 15, static_cast<int>(
-        std::floor(angle * 16.0f / juce::MathConstants<float>::twoPi)));
+    if (event.y < 797 || event.y > 910 || event.x < 34 || event.x > 1419)
+        return;
+    const int column = juce::jlimit(0, 15, static_cast<int>((event.x - 34) / 86.5f));
+    const int row = juce::jlimit(0, 3, (event.y - 797) / 30);
+    const int step = row * 16 + column;
+    if (step >= processor.getActiveSteps()) return;
 
     if (event.mods.isRightButtonDown()) processor.toggleLock(step);
-    else if (event.mods.isShiftDown()) processor.setStepSlot(step, layer);
+    else if (event.mods.isShiftDown()) processor.setStepSlot(step, selectedSlot);
     else processor.toggleStep(step);
-    repaint(15, 80, 585, 565);
+    repaint(20, 750, 1418, 184);
 }

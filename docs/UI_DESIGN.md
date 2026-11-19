@@ -1,29 +1,33 @@
-# Orbit UI direction (v0.4)
+# v0.5 Waveform Matrix Design
 
-The interface is a native JUCE instrument panel at 1100×730. It intentionally adopts a unique dark slate / sea-glass visual language rather than copying phrz brand elements.
+The first Orbit layout was replaced by a sharper, denser production workstation interface, inspired by high-contrast sample engines but wholly original to Phraser.
 
-## Layout
+## Appearance
 
-- **Header:** Phraser, Orbit Engine v0.4, primary NEW PHRASE action.
-- **Left stage:** four concentric circular rings, four distinct sample colours, sixteen divisions, playback highlight, locked-step markers, central playhead.
-- **Bottom-left:** SAVE A / RECALL A / SAVE B / RECALL B buttons.
-- **Right rack:** ten rotary controls in two rows, translucent dark panel, below which four coloured slot controls load WAVs.
-- **Live status:** narrow message line at bottom right.
+- Fixed 1460×950 desktop canvas built with JUCE Graphics, no WebView.
+- Graphite background (#0B1015) and low-chroma slate panels (#161D25).
+- Single bright lime marker (#D5FA66) for playhead and critical emphasis.
+- Waveforms use four restrained colour families across 16 slots rather than a neon rainbow.
+- Tiny radii (2–5px), hairline dividers, compact uppercase section titles.
 
-## Input behaviour
+## Zones
 
-- Ring click toggles the step enabled state.
-- Shift + ring click assigns that ring's sample slot to the step.
-- Right-click ring segment toggles step LOCK.
-- FREE / LOCK are not printed per segment; yellow dots communicate locked steps.
-- NEW PHRASE regenerates only unlocked steps.
-- SAVE A/B stores a full 16-step snapshot; RECALL A/B restores it.
-- UI refreshes the current transport step 24 times/sec only when it changes.
-- WAV load happens through the operating-system file chooser.
+- Header: PHRASER / WAVEFORM MATRIX v0.5.
+- Left: 16 simultaneous waveform lanes; each lane has a numbered WAV load button and a per-sample peak envelope.
+- Selected lane: pale amber overlay showing its random start window; start bounds shown as vertical dividers.
+- Live playback: lime vertical marker per active sample, updated roughly 24 times/sec from audio-block atomic indicators.
+- Right: 12 knobs, four per-sample randomness sliders, Generate and Keep/Recall A/B.
+- Bottom: 4 rows × 16-step overview; inactive cells subdued when the selected total length is below 64.
 
-## Design constraints
+## Interaction
 
-- No web browser dependency or streamed visual content.
-- No copied trademarks, images, logos, exact layout or font assets of phrz.
-- High contrast, large visible targets for loading, generating and recalling.
-- Default GUI remains a fixed-size experimental panel. User resizing, keyboard accessibility and high-DPI QA are planned improvements.
+- Click a WAV's button to select that slot and open file chooser.
+- Click the waveform area to select its slot without reopening chooser.
+- Edit per-sample normalized ranges and press GENERATE PHRASE; randomness is independent for each step and slot.
+- Left-click bottom step to mute; Shift+click to assign selected WAV; right-click to LOCK.
+- Steps-per-bar=8 makes each row represent two bars; steps-per-bar=16 makes each row one bar.
+- All audio playback state is read from atomics and immutable snapshots, not via audio-buffer access from the UI.
+
+## Pending design work
+
+Window scaling, zoomable waveform inspector, colourblind-accessible patterns, MIDI keyboard navigation, keyboard focus and high DPI testing remain future work.

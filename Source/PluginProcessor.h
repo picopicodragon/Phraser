@@ -8,10 +8,12 @@
 
 struct PhraserSample
 {
+    static constexpr int waveformPoints = 160;
     juce::AudioBuffer<float> audio;
     double sampleRate = 44100.0;
     juce::String sourcePath;
     std::vector<float> transients { 0.0f };
+    std::array<float, waveformPoints> waveform {};
 };
 
 struct SliceEvent
@@ -19,22 +21,33 @@ struct SliceEvent
     float offset = 0.0f;
     float length = 0.25f;
     int slot = 0;
-    bool enabled = true;
-    bool locked = false;
     int semitones = 0;
+    bool enabled = false;
+    bool locked = false;
 };
 
 struct PhraserPattern
 {
-    std::array<SliceEvent, 16> events {};
+    static constexpr int maxSteps = 64;
+    std::array<SliceEvent, maxSteps> events {};
 };
 
-// Immutable snapshots are exchanged between the UI and audio threads.
+struct PhraserSlotSettings
+{
+    float startMin = 0.0f;
+    float startMax = 1.0f;
+    float lengthMin = 0.08f;
+    float lengthMax = 0.35f;
+};
+
+// Pattern and sample snapshots are immutable after publication.
+// Loading / generation / editing happen outside the audio callback.
 class PhraserAudioProcessor final : public juce::AudioProcessor
 {
 public:
-    static constexpr int numSlots = 4;
-    static constexpr int numSteps = 16;
+    static constexpr int numSlots = 16;
+    static constexpr int numSteps = PhraserPattern::maxSteps;
+    static constexpr int waveformPoints = PhraserSample::waveformPoints;
 
     PhraserAudioProcessor();
     ~PhraserAudioProcessor() override = default;
@@ -60,15 +73,21 @@ public:
 
     bool loadWavFile(int slot, const juce::File&);
     juce::String getSlotName(int slot) const;
+    std::shared_ptr<const PhraserSample> getSampleSnapshot(int slot) const;
+    int getTransientCount(int slot) const;
     void randomizePattern();
     void toggleStep(int step);
     void toggleLock(int step);
     void setStepSlot(int step, int slot);
     void saveKeep(int index);
     void recallKeep(int index);
-    int getCurrentStep() const { return currentStep.load(std::memory_order_relaxed); }
-    int getTransientCount(int slot) const;
     PhraserPattern getPatternSnapshot() const;
+    int getCurrentStep() const { return currentStep.load(std::memory_order_relaxed); }
+    float getPlayPosition(int slot) const;
+    int getActiveSteps() const;
+    int getStepsPerBar() const;
+    PhraserSlotSettings getSlotSettings(int slot) const;
+    void setSlotSettings(int slot, PhraserSlotSettings);
     juce::AudioProcessorValueTreeState parameters;
 
 private:
@@ -77,9 +96,12 @@ private:
     std::array<std::shared_ptr<const PhraserSample>, numSlots> samples;
     std::shared_ptr<const PhraserPattern> pattern;
     std::array<std::shared_ptr<const PhraserPattern>, 2> keeps;
-    std::atomic<int> currentStep { -1 };
+    std::array<PhraserSlotSettings, numSlots> settings;
+    mutable juce::CriticalSection settingsLock;
     juce::AudioFormatManager formatManager;
     juce::Random random;
+    std::atomic<int> currentStep { -1 };
+    std::array<std::atomic<float>, numSlots> playPositions {};
     double engineSampleRate = 44100.0;
     int64_t previousStep = std::numeric_limits<int64_t>::min();
 
@@ -93,6 +115,7 @@ private:
         double duration = 1.0;
         double releaseStart = -1.0;
         double releaseFrames = 1.0;
+        int slot = -1;
     };
     static constexpr int maxVoices = 8;
     std::array<Voice, maxVoices> voices {};

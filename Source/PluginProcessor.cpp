@@ -1,29 +1,71 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "TransientDetection.h"
+#include <algorithm>
 #include <cmath>
-#include <limits>
+
+namespace
+{
+constexpr int maxSampleFrames = 4000000;
+constexpr int maxStoredSteps = PhraserPattern::maxSteps;
+
+void writeStep(juce::XmlElement& parent, const SliceEvent& e)
+{
+    auto* element = parent.createNewChildElement("Step");
+    element->setAttribute("on", e.enabled);
+    element->setAttribute("hold", e.locked);
+    element->setAttribute("slot", e.slot);
+    element->setAttribute("offset", e.offset);
+    element->setAttribute("length", e.length);
+    element->setAttribute("pitch", e.semitones);
+}
+
+PhraserPattern readPattern(const juce::XmlElement& parent)
+{
+    PhraserPattern restored;
+    const int count = juce::jmin(maxStoredSteps, parent.getNumChildElements());
+    for (int i = 0; i < count; ++i)
+    {
+        const auto* element = parent.getChildElement(i);
+        if (!element || !element->hasTagName("Step")) continue;
+        auto& e = restored.events[static_cast<size_t>(i)];
+        e.enabled = element->getBoolAttribute("on", false);
+        e.locked = element->getBoolAttribute("hold", false);
+        e.slot = juce::jlimit(0, PhraserAudioProcessor::numSlots - 1,
+                              element->getIntAttribute("slot", 0));
+        e.offset = juce::jlimit(0.0f, 0.999f,
+            static_cast<float>(element->getDoubleAttribute("offset", 0.0)));
+        e.length = juce::jlimit(0.005f, 1.0f,
+            static_cast<float>(element->getDoubleAttribute("length", 0.25)));
+        e.semitones = juce::jlimit(-12, 12, element->getIntAttribute("pitch", 0));
+    }
+    return restored;
+}
+}
 
 juce::AudioProcessorValueTreeState::ParameterLayout PhraserAudioProcessor::makeParameters()
 {
-    std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
-    auto add = [&params](const char* id, const char* title, float low, float high, float initial)
+    std::vector<std::unique_ptr<juce::RangedAudioParameter>> result;
+    auto add = [&result](const char* id, const char* name,
+                         float low, float high, float initial, float interval = 0.0f)
     {
-        params.push_back(std::make_unique<juce::AudioParameterFloat>(
-            juce::ParameterID { id, 1 }, title,
-            juce::NormalisableRange<float> { low, high }, initial));
+        result.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID { id, 1 }, name,
+            juce::NormalisableRange<float> { low, high, interval }, initial));
     };
     add("density", "Density", 0.0f, 1.0f, 0.8f);
     add("slice", "Slice Size", 0.02f, 1.0f, 0.25f);
     add("breaks", "Breaks", 0.0f, 1.0f, 0.2f);
     add("swing", "Swing", 0.0f, 0.75f, 0.0f);
-    add("gain", "Gain", 0.0f, 1.0f, 0.7f);
+    add("gain", "Gain", 0.0f, 1.0f, 0.65f);
     add("fade", "Fade", 0.001f, 0.03f, 0.006f);
-    add("transient", "Transient Snap", 0.0f, 1.0f, 1.0f);
+    add("transient", "Transient Snap", 0.0f, 1.0f, 0.75f);
     add("variation", "Variation", 0.0f, 1.0f, 0.5f);
-    add("pitch", "Pitch (semitones)", -12.0f, 12.0f, 0.0f);
-    add("pitchspread", "Pitch Spread", 0.0f, 12.0f, 0.0f);
-    return { params.begin(), params.end() };
+    add("pitch", "Pitch", -12.0f, 12.0f, 0.0f, 1.0f);
+    add("pitchspread", "Pitch Spread", 0.0f, 12.0f, 0.0f, 1.0f);
+    add("bars", "Bars", 1.0f, 4.0f, 1.0f, 1.0f);
+    add("division", "Steps per Bar", 8.0f, 16.0f, 16.0f, 8.0f);
+    return { result.begin(), result.end() };
 }
 
 PhraserAudioProcessor::PhraserAudioProcessor()
@@ -31,34 +73,36 @@ PhraserAudioProcessor::PhraserAudioProcessor()
       parameters(*this, nullptr, "PARAMETERS", makeParameters())
 {
     formatManager.registerBasicFormats();
+    for (auto& position : playPositions)
+        position.store(-1.0f, std::memory_order_relaxed);
     randomizePattern();
 }
 
-bool PhraserAudioProcessor::isBusesLayoutSupported(const BusesLayout& layout) const
+bool PhraserAudioProcessor::isBusesLayoutSupported(const BusesLayout& buses) const
 {
-    return layout.getMainOutputChannelSet() == juce::AudioChannelSet::stereo()
-        && layout.getMainInputChannelSet().isDisabled();
+    return buses.getMainInputChannelSet().isDisabled()
+        && buses.getMainOutputChannelSet() == juce::AudioChannelSet::stereo();
 }
 
-void PhraserAudioProcessor::prepareToPlay(double newRate, int)
+void PhraserAudioProcessor::prepareToPlay(double sampleRate, int)
 {
-    engineSampleRate = newRate;
+    engineSampleRate = sampleRate;
     previousStep = std::numeric_limits<int64_t>::min();
-    for (auto& voice : voices) voice = {};
-    nextVoice = 0;
     currentStep.store(-1, std::memory_order_relaxed);
+    for (auto& voice : voices) voice = {};
+    for (auto& pos : playPositions) pos.store(-1.0f, std::memory_order_relaxed);
+    nextVoice = 0;
 }
 
 bool PhraserAudioProcessor::loadWavFile(int slot, const juce::File& file)
 {
-    if (!juce::isPositiveAndBelow(slot, numSlots) || !file.existsAsFile()
-        || !file.hasFileExtension("wav"))
+    if (!juce::isPositiveAndBelow(slot, numSlots)
+        || !file.existsAsFile() || !file.hasFileExtension("wav"))
         return false;
 
     auto reader = std::unique_ptr<juce::AudioFormatReader>(formatManager.createReaderFor(file));
     if (!reader || reader->numChannels < 1 || reader->sampleRate <= 0.0
-        || reader->lengthInSamples < 2
-        || reader->lengthInSamples > 20000000)
+        || reader->lengthInSamples < 2 || reader->lengthInSamples > maxSampleFrames)
         return false;
 
     auto loaded = std::make_shared<PhraserSample>();
@@ -66,32 +110,89 @@ bool PhraserAudioProcessor::loadWavFile(int slot, const juce::File& file)
                           static_cast<int>(reader->lengthInSamples));
     if (!reader->read(&loaded->audio, 0, loaded->audio.getNumSamples(), 0, true, true))
         return false;
+
     loaded->sampleRate = reader->sampleRate;
     loaded->sourcePath = file.getFullPathName();
     loaded->transients = phraser::detectTransients(loaded->audio, loaded->sampleRate);
+
+    const int frames = loaded->audio.getNumSamples();
+    for (int cell = 0; cell < waveformPoints; ++cell)
+    {
+        const int from = static_cast<int>((static_cast<int64_t>(cell) * frames) / waveformPoints);
+        const int to = juce::jmin(frames, static_cast<int>(
+            (static_cast<int64_t>(cell + 1) * frames) / waveformPoints));
+        float peak = 0.0f;
+        for (int channel = 0; channel < loaded->audio.getNumChannels(); ++channel)
+        {
+            const float* data = loaded->audio.getReadPointer(channel);
+            for (int k = from; k < to; ++k)
+                peak = juce::jmax(peak, std::abs(data[k]));
+        }
+        loaded->waveform[static_cast<size_t>(cell)] = juce::jlimit(0.0f, 1.0f, peak);
+    }
+
     std::atomic_store(&samples[static_cast<size_t>(slot)],
                       std::shared_ptr<const PhraserSample>(loaded));
     return true;
 }
 
+std::shared_ptr<const PhraserSample> PhraserAudioProcessor::getSampleSnapshot(int slot) const
+{
+    if (!juce::isPositiveAndBelow(slot, numSlots)) return {};
+    return std::atomic_load(&samples[static_cast<size_t>(slot)]);
+}
+
 juce::String PhraserAudioProcessor::getSlotName(int slot) const
 {
-    if (!juce::isPositiveAndBelow(slot, numSlots))
-        return {};
-    auto source = std::atomic_load(&samples[static_cast<size_t>(slot)]);
-    return source ? juce::File(source->sourcePath).getFileName() : "(empty)";
+    auto sample = getSampleSnapshot(slot);
+    return sample ? juce::File(sample->sourcePath).getFileName() : "LOAD WAV";
 }
 
 int PhraserAudioProcessor::getTransientCount(int slot) const
 {
-    if (!juce::isPositiveAndBelow(slot, numSlots)) return 0;
-    const auto loaded = std::atomic_load(&samples[static_cast<size_t>(slot)]);
-    return loaded ? static_cast<int>(loaded->transients.size()) : 0;
+    auto sample = getSampleSnapshot(slot);
+    return sample ? static_cast<int>(sample->transients.size()) : 0;
+}
+
+float PhraserAudioProcessor::getPlayPosition(int slot) const
+{
+    if (!juce::isPositiveAndBelow(slot, numSlots)) return -1.0f;
+    return playPositions[static_cast<size_t>(slot)].load(std::memory_order_relaxed);
+}
+
+int PhraserAudioProcessor::getStepsPerBar() const
+{
+    return parameters.getRawParameterValue("division")->load() < 12.0f ? 8 : 16;
+}
+
+int PhraserAudioProcessor::getActiveSteps() const
+{
+    const auto bars = juce::jlimit(1, 4,
+        static_cast<int>(std::round(parameters.getRawParameterValue("bars")->load())));
+    return bars * getStepsPerBar();
+}
+
+PhraserSlotSettings PhraserAudioProcessor::getSlotSettings(int slot) const
+{
+    if (!juce::isPositiveAndBelow(slot, numSlots)) return {};
+    const juce::ScopedLock guard(settingsLock);
+    return settings[static_cast<size_t>(slot)];
+}
+
+void PhraserAudioProcessor::setSlotSettings(int slot, PhraserSlotSettings value)
+{
+    if (!juce::isPositiveAndBelow(slot, numSlots)) return;
+    value.startMin = juce::jlimit(0.0f, 1.0f, value.startMin);
+    value.startMax = juce::jlimit(value.startMin, 1.0f, value.startMax);
+    value.lengthMin = juce::jlimit(0.005f, 1.0f, value.lengthMin);
+    value.lengthMax = juce::jlimit(value.lengthMin, 1.0f, value.lengthMax);
+    const juce::ScopedLock guard(settingsLock);
+    settings[static_cast<size_t>(slot)] = value;
 }
 
 PhraserPattern PhraserAudioProcessor::getPatternSnapshot() const
 {
-    auto p = std::atomic_load(&pattern);
+    const auto p = std::atomic_load(&pattern);
     return p ? *p : PhraserPattern {};
 }
 
@@ -104,16 +205,25 @@ void PhraserAudioProcessor::randomizePattern()
     const auto size = parameters.getRawParameterValue("slice")->load();
     const auto variation = parameters.getRawParameterValue("variation")->load();
     const auto snap = parameters.getRawParameterValue("transient")->load();
-    const auto spread = parameters.getRawParameterValue("pitchspread")->load();
+    const int pitchSpread = juce::jlimit(0, 12,
+        static_cast<int>(std::round(parameters.getRawParameterValue("pitchspread")->load())));
+    const int active = getActiveSteps();
+    const int subdivision = getStepsPerBar();
+
     std::array<int, numSlots> loaded {};
     int count = 0;
     for (int i = 0; i < numSlots; ++i)
-        if (std::atomic_load(&samples[static_cast<size_t>(i)]))
+        if (getSampleSnapshot(i))
             loaded[static_cast<size_t>(count++)] = i;
 
-    const int anchor = count > 0 ? loaded[static_cast<size_t>(random.nextInt(count))] : 0;
-    float anchorOffset = random.nextFloat() * 0.9f;
-    const int motifPeriod = variation < 0.33f ? 4 : (variation < 0.67f ? 8 : 16);
+    std::array<PhraserSlotSettings, numSlots> slotSettings;
+    {
+        const juce::ScopedLock guard(settingsLock);
+        slotSettings = settings;
+    }
+
+    const int motif = variation < 0.33f ? subdivision / 2
+                    : variation < 0.67f ? subdivision : active;
     for (int i = 0; i < numSteps; ++i)
     {
         auto& e = next->events[static_cast<size_t>(i)];
@@ -122,45 +232,51 @@ void PhraserAudioProcessor::randomizePattern()
             e = old->events[static_cast<size_t>(i)];
             continue;
         }
-
-        const bool rhythmicBreak = (i % 4 >= 2 && random.nextFloat() < breaks);
-        e.enabled = random.nextFloat() < density && !rhythmicBreak;
-        const bool repeatMotif = i >= motifPeriod && random.nextFloat() > variation;
-        if (repeatMotif)
+        if (i >= active || count == 0)
         {
-            e = next->events[static_cast<size_t>(i - motifPeriod)];
+            e.enabled = false;
+            continue;
+        }
+
+        if (i >= motif && random.nextFloat() > variation)
+        {
+            e = next->events[static_cast<size_t>(i - motif)];
             e.locked = false;
             continue;
         }
 
-        e.slot = count > 0 ? loaded[static_cast<size_t>(random.nextInt(count))] : anchor;
-        e.length = size;
-        const int maxSpread = juce::jlimit(0, 12, static_cast<int>(std::round(spread)));
-        e.semitones = maxSpread > 0 ? random.nextInt(2 * maxSpread + 1) - maxSpread : 0;
-        e.offset = (variation < 0.25f && (i % 4) != 0)
-            ? anchorOffset : random.nextFloat() * 0.94f;
-        if (i % 4 == 0) anchorOffset = e.offset;
+        e.enabled = random.nextFloat() < density
+            && !(i % subdivision >= subdivision / 2 && random.nextFloat() < breaks);
+        e.slot = loaded[static_cast<size_t>(random.nextInt(count))];
 
-        const auto source = std::atomic_load(&samples[static_cast<size_t>(e.slot)]);
+        const auto& range = slotSettings[static_cast<size_t>(e.slot)];
+        e.offset = range.startMin + random.nextFloat() * (range.startMax - range.startMin);
+        // Each event receives a new independent duration from its sample's configured interval.
+        e.length = range.lengthMin + random.nextFloat() * (range.lengthMax - range.lengthMin);
+        // Size remains a usable global scaling control, centered at the v0.4 default 0.25.
+        e.length = juce::jlimit(0.005f, 1.0f, e.length * size / 0.25f);
+        e.semitones = pitchSpread > 0 ? random.nextInt(pitchSpread * 2 + 1) - pitchSpread : 0;
+
+        const auto source = getSampleSnapshot(e.slot);
         if (source && !source->transients.empty() && random.nextFloat() < snap)
         {
-            const auto& onsets = source->transients;
-            const auto it = std::lower_bound(onsets.begin(), onsets.end(), e.offset);
-            if (it == onsets.end()) e.offset = onsets.back();
-            else if (it == onsets.begin()) e.offset = *it;
-            else
-            {
-                const auto earlier = *(it - 1);
-                e.offset = (e.offset - earlier < *it - e.offset) ? earlier : *it;
-            }
+            const auto& marks = source->transients;
+            auto it = std::lower_bound(marks.begin(), marks.end(), e.offset);
+            if (it == marks.end()) e.offset = marks.back();
+            else if (it == marks.begin()) e.offset = *it;
+            else e.offset = e.offset - *(it - 1) < *it - e.offset ? *(it - 1) : *it;
         }
+
+        // Ensure a slice starting near the end still has a usable duration.
+        e.offset = juce::jlimit(0.0f, 0.995f, e.offset);
     }
+
     std::atomic_store(&pattern, std::shared_ptr<const PhraserPattern>(next));
 }
 
 void PhraserAudioProcessor::toggleStep(int index)
 {
-    if (!juce::isPositiveAndBelow(index, numSteps)) return;
+    if (!juce::isPositiveAndBelow(index, getActiveSteps())) return;
     auto next = std::make_shared<PhraserPattern>(getPatternSnapshot());
     auto& e = next->events[static_cast<size_t>(index)];
     e.enabled = !e.enabled;
@@ -169,34 +285,35 @@ void PhraserAudioProcessor::toggleStep(int index)
 
 void PhraserAudioProcessor::toggleLock(int index)
 {
-    if (!juce::isPositiveAndBelow(index, numSteps)) return;
+    if (!juce::isPositiveAndBelow(index, getActiveSteps())) return;
     auto next = std::make_shared<PhraserPattern>(getPatternSnapshot());
     auto& e = next->events[static_cast<size_t>(index)];
     e.locked = !e.locked;
     std::atomic_store(&pattern, std::shared_ptr<const PhraserPattern>(next));
 }
 
-void PhraserAudioProcessor::setStepSlot(int step, int slot)
+void PhraserAudioProcessor::setStepSlot(int index, int slot)
 {
-    if (!juce::isPositiveAndBelow(step, numSteps) || !juce::isPositiveAndBelow(slot, numSlots)) return;
+    if (!juce::isPositiveAndBelow(index, getActiveSteps())
+        || !juce::isPositiveAndBelow(slot, numSlots)) return;
     auto next = std::make_shared<PhraserPattern>(getPatternSnapshot());
-    next->events[static_cast<size_t>(step)].slot = slot;
-    next->events[static_cast<size_t>(step)].enabled = true;
+    auto& e = next->events[static_cast<size_t>(index)];
+    e.slot = slot;
+    e.enabled = true;
     std::atomic_store(&pattern, std::shared_ptr<const PhraserPattern>(next));
 }
 
 void PhraserAudioProcessor::saveKeep(int index)
 {
     if (!juce::isPositiveAndBelow(index, 2)) return;
-    auto snapshot = std::atomic_load(&pattern);
-    std::atomic_store(&keeps[static_cast<size_t>(index)], snapshot);
+    std::atomic_store(&keeps[static_cast<size_t>(index)], std::atomic_load(&pattern));
 }
 
 void PhraserAudioProcessor::recallKeep(int index)
 {
     if (!juce::isPositiveAndBelow(index, 2)) return;
-    auto remembered = std::atomic_load(&keeps[static_cast<size_t>(index)]);
-    if (remembered) std::atomic_store(&pattern, remembered);
+    auto kept = std::atomic_load(&keeps[static_cast<size_t>(index)]);
+    if (kept) std::atomic_store(&pattern, kept);
 }
 
 void PhraserAudioProcessor::startStep(
@@ -204,7 +321,6 @@ void PhraserAudioProcessor::startStep(
     const std::array<std::shared_ptr<const PhraserSample>, numSlots>& available,
     double releaseFrames)
 {
-    // Existing voices fade out when the next step begins, including rests.
     for (auto& voice : voices)
         if (voice.source && voice.releaseStart < 0.0)
         {
@@ -212,39 +328,31 @@ void PhraserAudioProcessor::startStep(
             voice.releaseFrames = releaseFrames;
         }
 
-    if (!event.enabled || !juce::isPositiveAndBelow(event.slot, numSlots))
-        return;
+    if (!event.enabled || !juce::isPositiveAndBelow(event.slot, numSlots)) return;
+    auto source = available[static_cast<size_t>(event.slot)];
+    if (!source || source->audio.getNumSamples() < 2) return;
 
-    const auto source = available[static_cast<size_t>(event.slot)];
-    if (!source || source->audio.getNumSamples() < 2)
-        return;
-
-    // Prefer a free voice; otherwise replace the oldest voice in the ring.
     int selected = -1;
     for (int i = 0; i < maxVoices; ++i)
-        if (!voices[static_cast<size_t>(i)].source)
-        {
-            selected = i;
-            break;
-        }
+        if (!voices[static_cast<size_t>(i)].source) { selected = i; break; }
     if (selected < 0)
     {
         selected = nextVoice;
         nextVoice = (nextVoice + 1) % maxVoices;
     }
 
-    Voice v;
-    v.source = source;
-    const double last = static_cast<double>(source->audio.getNumSamples() - 1);
-    v.position = juce::jlimit(0.0, last - 1.0, event.offset * last);
-    v.end = juce::jmin(last, v.position + event.length * (last + 1.0));
-    const auto globalPitch = parameters.getRawParameterValue("pitch")->load();
-    const auto semitones = juce::jlimit(-24.0, 24.0,
-        static_cast<double>(event.semitones) + static_cast<double>(globalPitch));
-    // Resampling pitch changes playback speed/duration; not a time-stretch algorithm.
-    v.increment = source->sampleRate / engineSampleRate * std::pow(2.0, semitones / 12.0);
-    v.duration = juce::jmax(1.0, (v.end - v.position) / v.increment);
-    voices[static_cast<size_t>(selected)] = std::move(v);
+    Voice voice;
+    voice.source = std::move(source);
+    voice.slot = event.slot;
+    const double last = static_cast<double>(voice.source->audio.getNumSamples() - 1);
+    voice.position = juce::jlimit(0.0, last - 1.0, static_cast<double>(event.offset) * last);
+    voice.end = juce::jmin(last,
+        voice.position + static_cast<double>(event.length) * (last + 1.0));
+    const double globalPitch = parameters.getRawParameterValue("pitch")->load();
+    const double semitones = juce::jlimit(-24.0, 24.0, event.semitones + globalPitch);
+    voice.increment = voice.source->sampleRate / engineSampleRate * std::pow(2.0, semitones / 12.0);
+    voice.duration = juce::jmax(1.0, (voice.end - voice.position) / voice.increment);
+    voices[static_cast<size_t>(selected)] = std::move(voice);
 }
 
 void PhraserAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
@@ -252,65 +360,72 @@ void PhraserAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
     juce::ScopedNoDenormals guard;
     buffer.clear();
     if (engineSampleRate <= 0.0) return;
+
     const auto localPattern = std::atomic_load(&pattern);
     if (!localPattern) return;
-
     std::array<std::shared_ptr<const PhraserSample>, numSlots> available;
     for (int i = 0; i < numSlots; ++i)
         available[static_cast<size_t>(i)] = std::atomic_load(&samples[static_cast<size_t>(i)]);
 
     const auto* host = getPlayHead();
-    if (!host) return;
+    if (host == nullptr)
+    {
+        previousStep = std::numeric_limits<int64_t>::min();
+        currentStep.store(-1, std::memory_order_relaxed);
+        for (auto& voice : voices) voice = {};
+        for (auto& indicator : playPositions) indicator.store(-1.0f, std::memory_order_relaxed);
+        return;
+    }
     const auto position = host->getPosition();
     if (!position || !position->getIsPlaying())
     {
         previousStep = std::numeric_limits<int64_t>::min();
         currentStep.store(-1, std::memory_order_relaxed);
         for (auto& voice : voices) voice = {};
+        for (auto& indicator : playPositions) indicator.store(-1.0f, std::memory_order_relaxed);
         return;
     }
 
     const auto ppq = position->getPpqPosition();
-    const auto bpm = position->getBpm().orFallback(120.0);
+    const double bpm = position->getBpm().orFallback(120.0);
     if (!ppq || bpm <= 0.0) return;
 
-    const double stepAdvance = (bpm / 60.0 * 4.0) / engineSampleRate;
-    const double baseStep = *ppq * 4.0;
+    const int subdivision = getStepsPerBar();
+    const int active = getActiveSteps();
+    const double stepAdvance = (bpm / 60.0 * subdivision / 4.0) / engineSampleRate;
+    const double baseStep = *ppq * (subdivision / 4.0);
     const double swing = parameters.getRawParameterValue("swing")->load();
-    const float fade = parameters.getRawParameterValue("fade")->load();
+    const double fadeFrames = juce::jmax(1.0,
+        parameters.getRawParameterValue("fade")->load() * engineSampleRate);
     const float gain = parameters.getRawParameterValue("gain")->load();
-    const double fadeFrames = juce::jmax(1.0, static_cast<double>(fade) * engineSampleRate);
-    const double crossfadeFrames = juce::jmax(1.0, static_cast<double>(0.005) * engineSampleRate);
+    const double crossfadeFrames = juce::jmax(1.0, 0.005 * engineSampleRate);
 
-    for (int sampleIndex = 0; sampleIndex < buffer.getNumSamples(); ++sampleIndex)
+    for (int frame = 0; frame < buffer.getNumSamples(); ++frame)
     {
-        const double positionInSteps = baseStep + sampleIndex * stepAdvance;
-        const auto whole = static_cast<int64_t>(std::floor(positionInSteps));
-        const double fraction = positionInSteps - static_cast<double>(whole);
-        const int64_t step = ((whole & 1LL) != 0 && fraction < swing)
-            ? whole - 1 : whole;
+        const double sequencePosition = baseStep + frame * stepAdvance;
+        const auto whole = static_cast<int64_t>(std::floor(sequencePosition));
+        const double fraction = sequencePosition - static_cast<double>(whole);
+        const int64_t step = ((whole & 1LL) && fraction < swing) ? whole - 1 : whole;
 
         if (step != previousStep)
         {
             previousStep = step;
-            currentStep.store(static_cast<int>((step % numSteps + numSteps) % numSteps), std::memory_order_relaxed);
-            const int index = static_cast<int>((step % numSteps + numSteps) % numSteps);
-            startStep(localPattern->events[static_cast<size_t>(index)],
-                      available, crossfadeFrames);
+            const int index = static_cast<int>((step % active + active) % active);
+            currentStep.store(index, std::memory_order_relaxed);
+            startStep(localPattern->events[static_cast<size_t>(index)], available, crossfadeFrames);
         }
 
         for (auto& voice : voices)
         {
             if (!voice.source) continue;
             const auto& audio = voice.source->audio;
-            const int frame = static_cast<int>(voice.position);
-            if (voice.position >= voice.end || frame + 1 >= audio.getNumSamples())
+            const auto sampleIndex = static_cast<int>(voice.position);
+            if (voice.position >= voice.end || sampleIndex + 1 >= audio.getNumSamples())
             {
                 voice = {};
                 continue;
             }
 
-            // Natural start/end fades plus short release on the next trigger.
             double envelope = juce::jlimit(0.0, 1.0,
                 juce::jmin(voice.rendered / fadeFrames,
                            (voice.duration - voice.rendered) / fadeFrames));
@@ -323,22 +438,29 @@ void PhraserAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
                     continue;
                 }
                 envelope *= juce::jlimit(0.0, 1.0,
-                                         1.0 - released / voice.releaseFrames);
+                    1.0 - released / voice.releaseFrames);
             }
 
-            const float fractionInSample = static_cast<float>(voice.position - frame);
+            const float fractional = static_cast<float>(voice.position - sampleIndex);
             for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
             {
-                const auto sourceChannel = juce::jmin(channel, audio.getNumChannels() - 1);
-                const auto* data = audio.getReadPointer(sourceChannel);
-                const float value = data[frame] + (data[frame + 1] - data[frame]) * fractionInSample;
-                buffer.addSample(channel, sampleIndex,
-                                 value * static_cast<float>(envelope) * gain);
+                const int srcChannel = juce::jmin(channel, audio.getNumChannels() - 1);
+                const auto* data = audio.getReadPointer(srcChannel);
+                const float value = data[sampleIndex]
+                    + (data[sampleIndex + 1] - data[sampleIndex]) * fractional;
+                buffer.addSample(channel, frame, value * static_cast<float>(envelope) * gain);
             }
             voice.position += voice.increment;
             voice.rendered += 1.0;
         }
     }
+
+    for (auto& indicator : playPositions) indicator.store(-1.0f, std::memory_order_relaxed);
+    for (const auto& voice : voices)
+        if (voice.source && juce::isPositiveAndBelow(voice.slot, numSlots))
+            playPositions[static_cast<size_t>(voice.slot)].store(
+                static_cast<float>(voice.position / voice.source->audio.getNumSamples()),
+                std::memory_order_relaxed);
 }
 
 juce::AudioProcessorEditor* PhraserAudioProcessor::createEditor()
@@ -350,42 +472,34 @@ void PhraserAudioProcessor::getStateInformation(juce::MemoryBlock& destination)
 {
     auto xml = parameters.copyState().createXml();
     if (!xml) return;
-    xml->setAttribute("phraserVersion", 4);
+    xml->setAttribute("phraserVersion", 5);
+    std::array<PhraserSlotSettings, numSlots> ranges;
+    {
+        const juce::ScopedLock guard(settingsLock);
+        ranges = settings;
+    }
     for (int i = 0; i < numSlots; ++i)
     {
-        auto loaded = std::atomic_load(&samples[static_cast<size_t>(i)]);
-        xml->setAttribute("slot" + juce::String(i),
-                          loaded ? loaded->sourcePath : juce::String());
+        auto loaded = getSampleSnapshot(i);
+        auto* slot = xml->createNewChildElement("SampleSlot");
+        slot->setAttribute("index", i);
+        slot->setAttribute("path", loaded ? loaded->sourcePath : juce::String());
+        const auto& v = ranges[static_cast<size_t>(i)];
+        slot->setAttribute("startMin", v.startMin);
+        slot->setAttribute("startMax", v.startMax);
+        slot->setAttribute("lengthMin", v.lengthMin);
+        slot->setAttribute("lengthMax", v.lengthMax);
     }
+
     auto* phrase = xml->createNewChildElement("Phrase");
-    const auto snapshot = getPatternSnapshot();
-    for (int i = 0; i < numSteps; ++i)
+    for (const auto& e : getPatternSnapshot().events) writeStep(*phrase, e);
+    for (int i = 0; i < 2; ++i)
     {
-        const auto& e = snapshot.events[static_cast<size_t>(i)];
-        auto* element = phrase->createNewChildElement("Step");
-        element->setAttribute("on", e.enabled);
-        element->setAttribute("hold", e.locked);
-        element->setAttribute("slot", e.slot);
-        element->setAttribute("offset", e.offset);
-        element->setAttribute("length", e.length);
-        element->setAttribute("pitch", e.semitones);
-    }
-    for (int k = 0; k < 2; ++k)
-    {
-        const auto kept = std::atomic_load(&keeps[static_cast<size_t>(k)]);
+        const auto kept = std::atomic_load(&keeps[static_cast<size_t>(i)]);
         if (!kept) continue;
-        auto* memory = xml->createNewChildElement("Keep");
-        memory->setAttribute("index", k);
-        for (const auto& e : kept->events)
-        {
-            auto* el = memory->createNewChildElement("Step");
-            el->setAttribute("on", e.enabled);
-            el->setAttribute("hold", e.locked);
-            el->setAttribute("slot", e.slot);
-            el->setAttribute("offset", e.offset);
-            el->setAttribute("length", e.length);
-            el->setAttribute("pitch", e.semitones);
-        }
+        auto* save = xml->createNewChildElement("Keep");
+        save->setAttribute("index", i);
+        for (const auto& e : kept->events) writeStep(*save, e);
     }
     copyXmlToBinary(*xml, destination);
 }
@@ -395,71 +509,63 @@ void PhraserAudioProcessor::setStateInformation(const void* data, int size)
     auto xml = getXmlFromBinary(data, size);
     if (!xml || !xml->hasTagName(parameters.state.getType())) return;
 
-    // Sample paths are saved rather than embedding potentially large WAV files.
-    // Note: synchronous disk reload on host state restore is a prototype limitation.
+    // Backward compatible with v0.2-v0.4: old 'slotN' attributes and 16 Step children.
     for (int i = 0; i < numSlots; ++i)
     {
-        const juce::File file(xml->getStringAttribute("slot" + juce::String(i)));
-        if (file.existsAsFile())
-            loadWavFile(i, file);
-        else
-            std::atomic_store(&samples[static_cast<size_t>(i)],
-                              std::shared_ptr<const PhraserSample> {});
+        auto* slotElement = [&]() -> juce::XmlElement*
+        {
+            for (auto* element : xml->getChildIterator())
+                if (element->hasTagName("SampleSlot")
+                    && element->getIntAttribute("index", -1) == i)
+                    return element;
+            return nullptr;
+        }();
+        const auto path = slotElement
+            ? slotElement->getStringAttribute("path")
+            : xml->getStringAttribute("slot" + juce::String(i));
+        PhraserSlotSettings range;
+        if (slotElement)
+        {
+            range.startMin = static_cast<float>(slotElement->getDoubleAttribute("startMin", 0.0));
+            range.startMax = static_cast<float>(slotElement->getDoubleAttribute("startMax", 1.0));
+            range.lengthMin = static_cast<float>(slotElement->getDoubleAttribute("lengthMin", 0.08));
+            range.lengthMax = static_cast<float>(slotElement->getDoubleAttribute("lengthMax", 0.35));
+        }
+        setSlotSettings(i, range);
+
+        const juce::File file(path);
+        if (path.isNotEmpty() && file.existsAsFile()) loadWavFile(i, file);
+        else std::atomic_store(&samples[static_cast<size_t>(i)],
+                               std::shared_ptr<const PhraserSample> {});
     }
 
     if (auto* phrase = xml->getChildByName("Phrase"))
+        std::atomic_store(&pattern,
+            std::shared_ptr<const PhraserPattern>(std::make_shared<PhraserPattern>(readPattern(*phrase))));
+
+    for (auto& keep : keeps)
+        std::atomic_store(&keep, std::shared_ptr<const PhraserPattern> {});
+    for (auto* child : xml->getChildIterator())
     {
-        if (phrase->getNumChildElements() == numSteps)
-        {
-            auto restored = std::make_shared<PhraserPattern>();
-            for (int i = 0; i < numSteps; ++i)
-            {
-                auto* element = phrase->getChildElement(i);
-                auto& e = restored->events[static_cast<size_t>(i)];
-                e.enabled = element->getBoolAttribute("on", true);
-                e.locked = element->getBoolAttribute("hold", false);
-                e.slot = juce::jlimit(0, numSlots - 1, element->getIntAttribute("slot", 0));
-                e.offset = juce::jlimit(0.0f, 0.99f,
-                                      static_cast<float>(element->getDoubleAttribute("offset", 0)));
-                e.length = juce::jlimit(0.02f, 1.0f,
-                                      static_cast<float>(element->getDoubleAttribute("length", 0.25)));
-                e.semitones = juce::jlimit(-12, 12, element->getIntAttribute("pitch", 0));
-            }
-            std::atomic_store(&pattern, std::shared_ptr<const PhraserPattern>(restored));
-        }
+        if (!child->hasTagName("Keep")) continue;
+        const int index = child->getIntAttribute("index", -1);
+        if (juce::isPositiveAndBelow(index, 2))
+            std::atomic_store(&keeps[static_cast<size_t>(index)],
+                std::shared_ptr<const PhraserPattern>(
+                    std::make_shared<PhraserPattern>(readPattern(*child))));
     }
 
-    for (auto* keep : xml->getChildIterator())
-    {
-        if (!keep->hasTagName("Keep")) continue;
-        const int k = keep->getIntAttribute("index", -1);
-        if (!juce::isPositiveAndBelow(k, 2) || keep->getNumChildElements() != numSteps) continue;
-        auto remembered = std::make_shared<PhraserPattern>();
-        for (int i = 0; i < numSteps; ++i)
-        {
-            const auto* el = keep->getChildElement(i);
-            auto& e = remembered->events[static_cast<size_t>(i)];
-            e.enabled = el->getBoolAttribute("on", true);
-            e.locked = el->getBoolAttribute("hold", false);
-            e.slot = juce::jlimit(0, numSlots - 1, el->getIntAttribute("slot", 0));
-            e.offset = juce::jlimit(0.0f, 0.99f, static_cast<float>(el->getDoubleAttribute("offset", 0)));
-            e.length = juce::jlimit(0.02f, 1.0f, static_cast<float>(el->getDoubleAttribute("length", 0.25)));
-            e.semitones = juce::jlimit(-12, 12, el->getIntAttribute("pitch", 0));
-        }
-        std::atomic_store(&keeps[static_cast<size_t>(k)], std::shared_ptr<const PhraserPattern>(remembered));
-    }
-
-    // Remove our custom children before passing the ValueTree to APVTS.
+    // ValueTree owns only the parameter children, not our sample / phrase / keep XML.
     auto stateXml = juce::parseXML(xml->toString());
-    if (stateXml)
+    if (!stateXml) return;
+    for (int i = stateXml->getNumChildElements() - 1; i >= 0; --i)
     {
-        if (auto* phrase = stateXml->getChildByName("Phrase"))
-            stateXml->removeChildElement(phrase, true);
-        for (int i = stateXml->getNumChildElements() - 1; i >= 0; --i)
-            if (stateXml->getChildElement(i)->hasTagName("Keep"))
-                stateXml->removeChildElement(stateXml->getChildElement(i), true);
-        parameters.replaceState(juce::ValueTree::fromXml(*stateXml));
+        auto* child = stateXml->getChildElement(i);
+        if (child->hasTagName("Phrase") || child->hasTagName("Keep")
+            || child->hasTagName("SampleSlot"))
+            stateXml->removeChildElement(child, true);
     }
+    parameters.replaceState(juce::ValueTree::fromXml(*stateXml));
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
