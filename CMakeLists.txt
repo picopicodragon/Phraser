@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(Phraser VERSION 0.7.1 LANGUAGES CXX)
+project(Phraser VERSION 0.8.0 LANGUAGES CXX)
 
 if (NOT WIN32)
     message(FATAL_ERROR "Phraser currently targets Windows only")
@@ -42,6 +42,7 @@ target_sources(Phraser PRIVATE
     Source/PluginEditor.h
     Source/TransientDetection.h
     Source/TempoDetection.h
+    Source/GrainAlignment.h
 )
 
 # JUCE/HarfBuzz source files contain UTF-8 characters that MSVC otherwise

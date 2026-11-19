@@ -18,8 +18,8 @@ public:
 private:
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
     static constexpr int controlCount = 12;
-    static constexpr float waveLeft = 363.0f;
-    static constexpr float waveWidth = 495.0f;
+    static constexpr float waveLeft = 427.0f;
+    static constexpr float waveWidth = 431.0f;
     static constexpr float laneTop = 102.0f;
     static constexpr float lanePitch = 30.0f;
 
@@ -30,6 +30,7 @@ private:
     std::array<juce::TextButton, PhraserAudioProcessor::numSlots> modeButtons;
     std::array<juce::TextButton, PhraserAudioProcessor::numSlots> syncButtons;
     std::array<juce::Label, PhraserAudioProcessor::numSlots> tempoLabels;
+    std::array<juce::Label, PhraserAudioProcessor::numSlots> pitchLabels;
     std::array<juce::TextButton, 2> saveButtons, recallButtons;
     std::array<juce::Slider, controlCount> sliders;
     std::array<juce::Label, controlCount> sliderLabels;

@@ -42,6 +42,7 @@ struct PhraserSlotSettings
     bool fadeAtNextStep = false;
     bool syncToHost = false;
     double manualBpm = 0.0;
+    int pitchSemitones = 0; // Independent sample tuning, -12..+12.
 };
 
 // Pattern and sample snapshots are immutable after publication.
@@ -112,6 +113,7 @@ private:
     std::array<std::atomic<bool>, numSlots> fadeAtNextStepModes {};
     std::array<std::atomic<bool>, numSlots> syncToHostModes {};
     std::array<std::atomic<double>, numSlots> manualTempos {};
+    std::array<std::atomic<int>, numSlots> slotPitches {};
     mutable juce::CriticalSection settingsLock;
     juce::AudioFormatManager formatManager;
     juce::Random random;
@@ -137,7 +139,14 @@ private:
         bool fadeAtNextStep = false;
         bool syncToHost = false;
         double tempoBpm = 0.0;
-        double baseIncrement = 1.0;
+        double baseIncrement = 1.0; // Natural source-frame advance per output frame.
+        double pitchIncrement = 1.0; // Tuning, independent of timeline advance.
+        double sourceStart = 0.0;
+        int pitchSemitones = 0;
+        static constexpr int grainTimeMs = 30;
+        int grainHopFrames = 1;
+        int64_t currentGrainHop = -1;
+        std::array<double, 2> grainStarts {};
         uint64_t serial = 0;
     };
     static constexpr int maxVoices = 32;
