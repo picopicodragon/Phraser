@@ -28,3 +28,7 @@ The design retains v0.5's 16 independent waveform lanes and precise step editing
 ## Future work
 
 Resizable UI, keyboard accessibility, multi-voice per-sample playhead markers, adjustable layer count and a zoomable ring/waveform editor.
+
+## v0.6.1 per-source playback switch
+
+A compact button inside the selected sample's random-window inspector toggles between **PLAYBACK: FULL SLICE LENGTH** and **PLAYBACK: 5ms FADE AT NEXT STEP**. WAV lane load buttons indicate the mode with **L** or **F**. The circular arc preview abbreviates short-release voices to roughly one step plus 5ms. All other bright studio controls, 16 waveform lanes and 16-ring orbit are retained.
