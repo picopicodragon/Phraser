@@ -1,51 +1,58 @@
 # Phraser
 
-Independent Windows x64 VST3 sample phrase instrument for Ableton Live 12. C++17 + JUCE 8.0.8.
+Phraser is an independent Windows x64 VST3 sample-phrase generator for Ableton Live 12, built with C++17 and JUCE 8.0.8.
 
-## Status
+## Version status
 
-- **main** is the last user-tested v0.2 prototype.
-- `feature/phrase-engine-v03` is the v0.3 source (user reported no apparent problems).
-- `feature/v04-orbit-ui-pitch` is **experimental v0.4**. **No Windows compile or Ableton runtime verification yet.** Do not distribute as a release.
+- `main` contains the earlier tested v0.2 prototype.
+- `feature/phrase-engine-v03` contains v0.3.
+- `feature/v04-orbit-ui-pitch` contains v0.4.
+- `feature/v05-waveform-16slots-arrangement` contains **experimental v0.5 source**. It has **not been compiled or tested on Windows** in this change.
 
-## v0.4
+## v0.5 features
 
-- Entirely redrawn **Orbit UI** in native JUCE Graphics, not WebView2. Four concentric layer rings, each with sixteen segments. Orbit colour maps to one of four sample slots.
-- Left-click within the orbit toggles the selected **step** (the step is shared across layers).
-- **Shift+click** chooses the clicked sample layer for the step and enables it. **Right-click** toggles step lock. Yellow dots indicate locked steps.
-- Center shows the Live transport's currently playing step.
-- Right-hand dashboard groups ten knobs: Density, Slice Size, Breaks, Swing, Output, Fade, Transient Snap, Variation, Pitch and Pitch Spread.
-- Four colour-coded WAV slot load buttons, NEW PHRASE, SAVE A/B and RECALL A/B.
-- Global Pitch ±12 semitones plus per-step randomized pitch deviations from Pitch Spread 0–12 semitones. Resulting total shift limited to ±24 semitones.
-- Pitch is implemented by changing sample playback increment. **Pitch and speed/duration change together**. This is **not** independent-pitch time stretching, nor key detection/correction.
-- Pattern Keep A/B memories are saved inside the host state alongside the current phrase and sample paths.
-- Retains previous features: four independent WAVs, onset approximation and snapping, eight-voice 5ms release overlaps, 16-step motif variation, sample reference persistence, MIDI input event bus.
+- **16 WAV slots**. Each sample is mono/stereo and limited to 4,000,000 frames (roughly 91 sec at 44.1 kHz). Load independent audio into each slot.
+- **16 waveform thumbnails** with lightweight offline-computed peak envelopes and approximate real-time playback position indicators.
+- **Independent random windows per sample**: START FROM, START TO, LENGTH MIN and LENGTH MAX. Select a waveform lane, change its ranges, then press GENERATE PHRASE. Each new event draws a random start and duration using the settings of its assigned sample.
+- **1–4 bars** and **8 or 16 steps per bar**. This yields 8–64 total steps, including **4 bars × 8 = 32 steps** or **4 bars × 16 = 64 steps**.
+- A crisp, square-edged, dark graphite production interface with compact waveform rows, vivid lime playheads and a dense 4×16 sequence grid. No website runtime and no copied original phrz assets.
+- Click a sequence cell to toggle it, Shift+click assigns the currently selected WAV to it, right-click locks it during regeneration.
+- Existing Density, Size, Breaks, Swing, Output, Fade, Snap, Variation, Pitch, Pitch Spread, Keep A/B and 8-voice short-release overlap.
+- Project state stores 16 WAV paths, the 64-step pattern, A/B memories and each sample's random windows. Older 16-step sessions are loaded with the first 16 steps preserved.
 
-The styling takes inspiration from the general interaction pattern of a multilayer circular sampler. Artwork, layout, branding and implementation are original and not copied from nok's product.
+## Build
 
-## Build on Windows with Visual Studio 2026
+Requires x64 Windows, Visual Studio 2026 with C++ desktop workload, CMake 3.22+, Git.
 
 ```powershell
-git clone https://github.com/picopicodragon/Phraser.git
-cd Phraser
+cd C:\Users\picopicoDragon\Documents\Phraser
 git fetch origin
-git switch -c feature/v04-orbit-ui-pitch --track origin/feature/v04-orbit-ui-pitch
-cmake -S . -B build-v04 -G "Visual Studio 18 2026" -A x64
-cmake --build build-v04 --config Release --target Phraser_VST3
+git switch -c feature/v05-waveform-16slots-arrangement --track origin/feature/v05-waveform-16slots-arrangement
+cmake -S . -B build-v05 -G "Visual Studio 18 2026" -A x64
+cmake --build build-v05 --config Release --target Phraser_VST3
 ```
 
-VST3 bundle output: `build-v04/Phraser_artefacts/Release/VST3/Phraser.vst3`.
+Output is the directory `build-v05/Phraser_artefacts/Release/VST3/Phraser.vst3`. Keep a backup of the working prior VST3, quit Live and copy the entire new bundle to `C:\Program Files\Common Files\VST3\Phraser.vst3` using administrator rights. Rescan VST3 in Live. Don't overwrite the working copy until build success and initial checks.
 
-**Backup v0.3 first**, quit Live, and copy the complete VST3 bundle folder to `C:\Program Files\Common Files\VST3\Phraser.vst3` with administrator rights. Rescan in Live 12. Use a new test project.
+## How to use
 
-## Known limitations
+1. Load up to 16 WAVs from the 16 source buttons, each with its waveform lane.
+2. Click a waveform to select its lane. Set its START FROM/TO and LENGTH MIN/MAX using the inspector on the right. Values are normalized fractions of each WAV's duration.
+3. Set BARS to 1–4 and STEPS/BAR to 8 or 16. Four bars and eight steps/bar gives a 32-step sequence.
+4. Adjust Density / Size / Breaks / Snap / Variation and press GENERATE PHRASE. A fresh pattern is built for the current sequence length. The overall SIZE knob scales each independently chosen sample length; 0.25 is neutral.
+5. Start Live transport. A moving marker over the WAV lane indicates its approximate playback position. The sequence grid highlights the current step.
+6. Use the bottom grid to mute, route or lock events, and Keep A/B to store phrase alternatives.
 
-- Experimental. v0.4's source has not been compiled on a Windows toolchain as part of this change.
-- No dedicated key detection, tempo-independent pitch shifting, time stretching, DAW clip export, MIDI note triggering or multibus stems.
-- Sample files are saved by absolute path and remain external; lost or moved source files are silent.
-- Disk file loads and state restore are synchronous and can temporarily block. Sample ownership via atomic shared_ptr can still incur realtime-thread destruction. These need a dedicated loader and deferred reclamation.
-- Eight voices, but existing voices are released at every new step. The result is a short crossfade, not long independent polyphony.
-- One-bar (16 sixteenth notes) sequencer, assuming 4/4.
-- Floating-point output can exceed 1.0 when overlapping loud samples; user should manage output level until a limiter is added.
+## Limitations
+
+- This is an experimental, **unverified** v0.5 branch, not a release.
+- The 16 WAVs are referenced by absolute file paths. Audio is not embedded in Live project state.
+- Long/large WAV loading and DAW state restoration can block the caller; each WAV has a 4,000,000-frame limit.
+- The waveform is a peak-envelope overview, not a zoomable sample editor; the indicator is a coarse audio-block-level view.
+- The 8-voice engine releases prior voices on each trigger, so this is a crossfading slicer, not 16 independently sustaining tracks.
+- Pitch changes playback rate rather than preserving duration.
+- 4/4 bars are assumed. Time signature changes and sophisticated timeline discontinuities are not yet supported.
+- Sample ownership with atomic shared_ptr and synchronous IO are not fully real-time safe; replace in later engine revisions.
+- New state serialization must be tested with Live projects; back up projects before opening with experimental builds.
 
 See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) and [docs/UI_DESIGN.md](docs/UI_DESIGN.md).
