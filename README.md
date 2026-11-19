@@ -17,7 +17,7 @@ Windows x64 VST3 phrase sampler for Ableton Live 12, written with C++17 and JUCE
 
 ### Implementation
 
-The v0.7 SYNC mode performed naive playback-rate resampling, which transposed the sample as Live BPM changed. v0.8 separates (a) the **source timeline** at normal or tempo-matched speed from (b) **grain-local playback** at the selected musical pitch. It crossfades two short, overlapping grains (nominal 60 ms each with 30 ms hop) using smoothstep weights. The voice's fixed-size state requires no new large buffers or allocations in its per-sample render loop.
+The v0.7 SYNC mode performed naive playback-rate resampling, which transposed the sample as Live BPM changed. v0.8 separates (a) the **source timeline** at normal or tempo-matched speed from (b) **grain-local playback** at the selected musical pitch. It crossfades two short, overlapping grains (nominal 60 ms each with 30 ms hop) using smoothstep weights and a bounded waveform-similarity search near new grain starts to reduce phase cancellation. The voice's fixed-size state requires no new large buffers or allocations in its per-sample render loop.
 
 This is an **initial, lightweight time-domain overlap-add (OLA) implementation**, not a professional formant-preserving WSOLA/phase-vocoder engine. It can produce audible phasing, graininess, transient smearing or modulation at strong tempo/pitch ratios, especially on complex or sustained material. Tempo estimation can still be inaccurate and half/double-time ambiguous; correct each WAV's editable BPM manually. A more advanced transient-aware stretching engine remains a future quality milestone.
 
