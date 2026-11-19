@@ -82,6 +82,8 @@ PhraserAudioProcessor::PhraserAudioProcessor()
         mode.store(false, std::memory_order_relaxed);
     for (auto& tempo : manualTempos)
         tempo.store(0.0, std::memory_order_relaxed);
+    for (auto& pitch : slotPitches)
+        pitch.store(0, std::memory_order_relaxed);
     randomizePattern();
 }
 
@@ -207,6 +209,7 @@ void PhraserAudioProcessor::setSlotSettings(int slot, PhraserSlotSettings value)
     value.startMax = juce::jlimit(value.startMin, 1.0f, value.startMax);
     value.lengthMin = juce::jlimit(0.005f, 1.0f, value.lengthMin);
     value.lengthMax = juce::jlimit(value.lengthMin, 1.0f, value.lengthMax);
+    value.pitchSemitones = juce::jlimit(-12, 12, value.pitchSemitones);
     value.manualBpm = (std::isfinite(value.manualBpm) && value.manualBpm >= 40.0
                        && value.manualBpm <= 240.0) ? value.manualBpm : 0.0;
     const juce::ScopedLock guard(settingsLock);
@@ -214,6 +217,7 @@ void PhraserAudioProcessor::setSlotSettings(int slot, PhraserSlotSettings value)
     fadeAtNextStepModes[static_cast<size_t>(slot)].store(value.fadeAtNextStep, std::memory_order_release);
     syncToHostModes[static_cast<size_t>(slot)].store(value.syncToHost, std::memory_order_release);
     manualTempos[static_cast<size_t>(slot)].store(value.manualBpm, std::memory_order_release);
+    slotPitches[static_cast<size_t>(slot)].store(value.pitchSemitones, std::memory_order_release);
 }
 
 PhraserPattern PhraserAudioProcessor::getPatternSnapshot() const
@@ -376,18 +380,32 @@ void PhraserAudioProcessor::startStep(
     voice.syncToHost = syncToHostModes[static_cast<size_t>(event.slot)].load(std::memory_order_acquire);
     voice.tempoBpm = manualTempos[static_cast<size_t>(event.slot)].load(std::memory_order_acquire);
     if (voice.tempoBpm <= 0.0) voice.tempoBpm = voice.source->detectedBpm;
+    voice.pitchSemitones = slotPitches[static_cast<size_t>(event.slot)].load(std::memory_order_acquire);
     voice.serial = ++voiceSerial;
     const double last = static_cast<double>(voice.source->audio.getNumSamples() - 1);
     voice.position = juce::jlimit(0.0, last - 1.0, static_cast<double>(event.offset) * last);
+    voice.sourceStart = voice.position;
     voice.end = juce::jmin(last,
         voice.position + static_cast<double>(event.length) * (last + 1.0));
     const double globalPitch = parameters.getRawParameterValue("pitch")->load();
-    const double semitones = juce::jlimit(-24.0, 24.0, event.semitones + globalPitch);
-    voice.baseIncrement = voice.source->sampleRate / engineSampleRate * std::pow(2.0, semitones / 12.0);
+    const double semitones = juce::jlimit(-24.0, 24.0,
+        static_cast<double>(event.semitones) + static_cast<double>(globalPitch)
+        + static_cast<double>(voice.pitchSemitones));
+    // Source timeline moves only with musical tempo. Pitch changes the
+    // internal grain playback rate, not the duration of a slice.
+    voice.baseIncrement = voice.source->sampleRate / engineSampleRate;
+    voice.pitchIncrement = voice.baseIncrement * std::pow(2.0, semitones / 12.0);
     voice.increment = voice.baseIncrement;
     if (voice.syncToHost && voice.tempoBpm > 0.0)
         voice.increment *= lastBpm.load(std::memory_order_relaxed) / voice.tempoBpm;
     voice.duration = juce::jmax(1.0, (voice.end - voice.position) / voice.increment);
+    // Two overlapping 60ms grains, staggered every 30ms. Fixed-size
+    // voice state means this introduces no buffer allocation per trigger.
+    voice.grainHopFrames = juce::jmax(32, static_cast<int>(engineSampleRate * 0.03));
+    voice.grainStarts[0] = voice.sourceStart;
+    voice.grainStarts[1] = voice.sourceStart
+        - voice.grainHopFrames * voice.pitchIncrement;
+    voice.currentGrainHop = -1;
     voices[static_cast<size_t>(selected)] = std::move(voice);
 }
 
@@ -500,8 +518,8 @@ void PhraserAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
         {
             if (!voice.source) continue;
             const auto& audio = voice.source->audio;
-            const auto sampleIndex = static_cast<int>(voice.position);
-            if (voice.position >= voice.end || sampleIndex + 1 >= audio.getNumSamples())
+            if (voice.position >= voice.end
+                || voice.position >= audio.getNumSamples() - 1)
             {
                 voice = {};
                 continue;
@@ -522,14 +540,46 @@ void PhraserAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
                     1.0 - released / voice.releaseFrames);
             }
 
-            const float fractional = static_cast<float>(voice.position - sampleIndex);
+            // 50%-overlap granular OLA: the two read heads advance at
+            // the requested pitch, while their anchors follow the tempo
+            // timeline. Thus Live BPM changes do not transpose the source.
+            const int hop = voice.grainHopFrames;
+            const auto grain = static_cast<int64_t>(voice.rendered) / hop;
+            const double age = voice.rendered - static_cast<double>(grain) * hop;
+            if (grain != voice.currentGrainHop)
+            {
+                voice.currentGrainHop = grain;
+                voice.grainStarts[static_cast<size_t>(grain & 1LL)] = voice.position;
+            }
+            const auto current = static_cast<size_t>(grain & 1LL);
+            const auto previous = 1U - current;
+            const double fresh = voice.grainStarts[current]
+                + age * voice.pitchIncrement;
+            const double older = voice.grainStarts[previous]
+                + (age + hop) * voice.pitchIncrement;
+            const double t = juce::jlimit(0.0, 1.0, age / hop);
+            const float freshWeight = static_cast<float>(t * t * (3.0 - 2.0 * t));
+            const float olderWeight = 1.0f - freshWeight;
+            const double highest = juce::jmin(
+                voice.end - 0.0001, static_cast<double>(audio.getNumSamples() - 1));
+            const float amp = static_cast<float>(envelope) * gain;
+
             for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
             {
                 const int srcChannel = juce::jmin(channel, audio.getNumChannels() - 1);
                 const auto* data = audio.getReadPointer(srcChannel);
-                const float value = data[sampleIndex]
-                    + (data[sampleIndex + 1] - data[sampleIndex]) * fractional;
-                buffer.addSample(channel, frame, value * static_cast<float>(envelope) * gain);
+                auto sampleAt = [&](double index)
+                {
+                    const double clamped = juce::jlimit(
+                        voice.sourceStart, juce::jmax(voice.sourceStart, highest), index);
+                    const int first = static_cast<int>(clamped);
+                    const int second = juce::jmin(first + 1, audio.getNumSamples() - 1);
+                    const float fraction = static_cast<float>(clamped - first);
+                    return data[first] + (data[second] - data[first]) * fraction;
+                };
+                const float value = sampleAt(fresh) * freshWeight
+                    + sampleAt(older) * olderWeight;
+                buffer.addSample(channel, frame, value * amp);
             }
             voice.position += voice.increment;
             voice.rendered += 1.0;
@@ -548,7 +598,7 @@ void PhraserAudioProcessor::getStateInformation(juce::MemoryBlock& destination)
 {
     auto xml = parameters.copyState().createXml();
     if (!xml) return;
-    xml->setAttribute("phraserVersion", 7);
+    xml->setAttribute("phraserVersion", 8);
     std::array<PhraserSlotSettings, numSlots> ranges;
     {
         const juce::ScopedLock guard(settingsLock);
@@ -568,6 +618,7 @@ void PhraserAudioProcessor::getStateInformation(juce::MemoryBlock& destination)
         slot->setAttribute("fadeAtNextStep", v.fadeAtNextStep);
         slot->setAttribute("syncToHost", v.syncToHost);
         slot->setAttribute("manualBpm", v.manualBpm);
+        slot->setAttribute("pitchSemitones", v.pitchSemitones);
     }
 
     auto* phrase = xml->createNewChildElement("Phrase");
@@ -612,6 +663,7 @@ void PhraserAudioProcessor::setStateInformation(const void* data, int size)
             range.fadeAtNextStep = slotElement->getBoolAttribute("fadeAtNextStep", false);
             range.syncToHost = slotElement->getBoolAttribute("syncToHost", false);
             range.manualBpm = slotElement->getDoubleAttribute("manualBpm", 0.0);
+            range.pitchSemitones = slotElement->getIntAttribute("pitchSemitones", 0);
         }
         setSlotSettings(i, range);
 
