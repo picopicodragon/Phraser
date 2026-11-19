@@ -1,70 +1,66 @@
 # Phraser
 
-Windows-only VST3 phrase sampler for Ableton Live 12. Developed in C++17 using JUCE 8.0.8.
+Windows x64 VST3 generative sample instrument for Ableton Live 12 (JUCE 8.0.8, C++17).
 
-## Status
+## Version v0.7 (experimental)
 
-**Experimental v0.6.1** is on `feature/v061-per-slot-playback-mode`, based on the 16-WAV waveform-matrix v0.6 branch. The known working main branch is untouched. This v0.6 code must pass Windows CI and Ableton 12 testing before it is released.
+Branch: `feature/v07-waveform-edit-tempo`. Based on v0.6.1. Do not overwrite the current working VST3 until Windows CI and Live tests succeed.
 
-## New in v0.6.1: per-WAV playback behavior
+### Direct waveform editing
 
-Each of the 16 WAV slots can independently choose one of two **trigger behavior modes** from the sample range inspector:
+The previous `SAMPLE nn / RANDOM WINDOWS` inspector panel has been removed. All 16 waveform lanes are editable in-place:
 
-- **PLAYBACK: FULL SLICE LENGTH** (default): each trigger runs until that event's programmed slice end. Multiple triggers overlap independently, up to the existing 32-voice cap.
-- **PLAYBACK: 5ms FADE AT NEXT STEP**: the voice plays normally until the sequencer advances to the **next step**, then releases smoothly over about **5 milliseconds**. This also happens when the next step is a rest. If a slice ends before the next step, it ends naturally. The next step itself can retrigger the same WAV.
+- **Click+drag across a waveform:** set that sample's **START FROM** and **START TO** as a normalized position interval. Green tinted area and green endpoint lines show the selected interval.
+- **Shift+drag across the same waveform:** set **LENGTH MIN** and **LENGTH MAX** as normalized fractions of that WAV's total duration. A narrow ochre band beneath the waveform shows these bounds.
+- These ranges are used when pressing **GENERATE**. Each generated slice chooses its own random start and duration from the associated sample's ranges. The global SIZE control still scales duration.
+- Single clicking creates a zero-width start range (fixed start position) or a minimal duration range; drag for randomness.
+- Clicking the sample filename opens the WAV picker. Each row's buttons sit immediately to the right of the sample name.
 
-Playback mode is per sample slot, captured at note trigger time. Changing it affects **new notes**, not currently sounding ones. Existing custom per-slot START FROM/TO and LENGTH MIN/MAX remain independent. All mode selections are saved with the Live project as a `fadeAtNextStep` property in each `SampleSlot` XML node. Old project files default to FULL SLICE LENGTH. The sample loader buttons show **F** (5ms next-step fade) or **L** (full length) beside the sample number. The orbit preview approximates the shorter release period.
+### Per-sample playback mode and tempo
 
-## New in v0.6
+Each WAV slot offers the following controls on its row:
 
-### Real polyphonic sample-slicing
+- **FULL / 5ms**: play each slice until its programmed end (FULL), or begin a 5ms release on the next sequencer step (5ms).
+- **SYNC / FREE**: tempo-synchronized playback speed vs unmodified sample playback speed.
+- **BPM**: automatic BPM estimate from WAV onset spacing, shown in an editable text field. Click to override with any value **40–240 BPM**, or enter `0` to return to auto-detection. A `?` means no reliable BPM estimate was possible; SYNC then behaves like FREE until the user enters a manual BPM.
 
-- **Up to 32 independent sample voices** play simultaneously, rather than fading all previous voices as soon as a new step begins.
-- Every triggered event independently follows its randomized sample start, sample length and pitch playback rate.
-- Each voice naturally terminates at its selected slice end (or the end of its source file), with the existing short attack/end fade.
-- Rest steps **do not** stop existing notes. Overlapping samples add together.
-- If more than 32 voices are needed, the **oldest voice is stolen**. Voice stealing can click in a saturated pattern; future versions should fade stolen notes smoothly.
-- Transport stop releases all voices. MIDI input is accepted for VST3 instrument compatibility, but note-triggered polyphony is not yet implemented.
+**Important:** SYNC changes the playback rate by `Live BPM / Sample BPM`. This changes pitch *as well as speed*, because this version uses resampling rather than independent time-stretching or key correction. The BPM detector is an approximate onset-interval algorithm; rhythmic subdivisions can cause half/double-time ambiguities. Correct the BPM manually where needed. Pitch and pitch spread controls are retained.
 
-### Brighter design with both views
+The 16 WAV paths, per-sample playback modes, SYNC/FREE choices, BPM overrides, waveform editing ranges, 64-step phrase and Keep A/B memories are persisted in Live project state. Old projects default to FREE and automatic BPM.
 
-- Preserves the **16 simultaneous waveform lanes** and 4×16 step grid from v0.5.
-- Replaces the dark charcoal theme with an **off-white, soft mint, ink-green** palette, light sample panels and stronger waveform contrast.
-- Adds a **16-ring circular overlap map** to the bottom-right area. Each ring represents one WAV source, inner = 01, outer = 16.
-- An arc shows each enabled step's approximate start time and sounding duration within the repeating phrase. Several arcs can appear at once on different rings, making overlaps visually obvious.
-- Currently sounding samples brighten their rings; the center shows **live active voice count**, and a line indicates the current phrase step.
-- Waveform lane playback markers still show the furthest-progressed current voice of that sample; they do not draw each voice independently.
+### Smaller GUI
 
-### Retained from v0.5
+The native JUCE panel now measures **1280×850 pixels** (down from 1460×1150). It keeps sixteen visible waveform lanes, the four-row sequence grid, twelve engine knobs, and a sixteen-ring overlap visualization.
 
-- Up to 16 WAV source files and precomputed waveforms
-- 1 to 4 bars, 8 or 16 steps/bar (8–64 total)
-- Per-sample START FROM/TO and LENGTH MIN/MAX random ranges
-- Density / Breaks / Snap / Variation, pitch/rate and pitch spread
-- Keep A/B, step edit and lock, DAW state restoration
+### Previous features retained
 
-## Build on Windows (Visual Studio 2026)
+- 16 WAV slots with sample peak waveform data
+- Up to 32 independent overlapping voices
+- 1–4 bars and 8 or 16 steps per bar, 8–64 total steps
+- Transient-aware slice generation, Density, Breaks, Variation, Pitch, Gain, Fade, Swing
+- Keep A/B memory, note-capable VST3 bus for Live (automatic transport-based sequencing)
+
+## Windows build
 
 ```powershell
 cd C:\Users\picopicoDragon\Documents\Phraser
 git fetch origin
-git switch -c feature/v061-per-slot-playback-mode --track origin/feature/v061-per-slot-playback-mode
-cmake -S . -B build-v061 -G "Visual Studio 18 2026" -A x64
-cmake --build build-v06 --config Release --target Phraser_VST3
+git switch -c feature/v07-waveform-edit-tempo --track origin/feature/v07-waveform-edit-tempo
+cmake -S . -B build-v07 -G "Visual Studio 18 2026" -A x64
+cmake --build build-v07 --config Release --target Phraser_VST3
 ```
 
-Output: `build-v06/Phraser_artefacts/Release/VST3/Phraser.vst3` (directory).
-Back up the known working VST3 bundle first; exit Live before installing, and rescan VST3 after updating.
+The entire VST3 folder will be in `build-v07/Phraser_artefacts/Release/VST3/Phraser.vst3`. Shut down Ableton, back up the installed bundle and copy the entire folder to `C:\Program Files\Common Files\VST3\Phraser.vst3`, then rescan plugins.
 
-## Limitations / quality notes
+## Limitations
 
-- Source files are external absolute WAV paths; sound is not embedded into the Live project.
-- Samples are loaded synchronously and state restore may block the host; shared pointer ownership on the audio thread is not guaranteed hard realtime safe.
-- Maximum 32 simultaneous voices, with oldest-voice stealing at the limit; no per-voice modulation or independent MIDI-note instruments yet.
-- Mix of multiple voice outputs can clip. Reduce OUTPUT gain and avoid overly hot WAVs until a proper limiter/master stage is implemented.
-- Slice duration is proportional to original WAV length, adjusted by playback rate; no separate time stretching or pitch correction.
-- Ring arcs use predicted slice lengths at the currently reported BPM, so the visual is an approximation of audible overlap. 4/4 meter assumed.
-- UI currently fixed 1460×1150, so small laptop displays may require OS scaling or later resize support.
-- v0.6.1 must be checked in Ableton Live 12 before claiming production reliability.
+- **Not yet Live-validated:** this branch must be checked in Ableton Live 12 on PC1 before release.
+- Tempo estimator is a heuristic (not studio-grade beat tracking) and can be ambiguous on non-percussive sources.
+- Synchronization alters pitch together with playback speed.
+- Source WAV files remain external absolute paths, not embedded in Live project.
+- WAV reading and host state restoration are synchronous; sample ownership uses shared_ptr and is not guaranteed fully hard-real-time safe.
+- There is a 32-voice hard cap, with oldest-voice stealing. Simultaneous loud sounds can clip.
+- Each waveform lane's narrow duration band displays the configured fraction of the original WAV duration, not a rendered audio preview.
+- Still based on 4/4 meter and fixed UI sizing.
 
-See docs/DEVELOPMENT.md and docs/UI_DESIGN.md.
+See `docs/DEVELOPMENT.md` for validation tasks.

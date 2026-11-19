@@ -1,34 +1,35 @@
-# Phraser v0.6: Light Waveform Matrix + Overlap Orbit
+# v0.7 compact waveform editor
 
-The design retains v0.5's 16 independent waveform lanes and precise step editing while adding a circular musical overlap overview.
+The v0.7 GUI preserves the v0.6 bright off-white / forest green style, while simplifying controls and reducing size from 1460×1150 to **1280×850**.
 
-## Visual language
+## Top-left: sixteen sample lanes
 
-- Warm off-white background #EDF2EF with pale panels #FCFDFB.
-- Dark forest ink #1E3029 for typography, muted green-grey metadata.
-- Single fresh green highlight #238B60 for playheads and primary emphasis.
-- Four muted source families (sea-green, amber, violet, rose), each used across four sample slots.
-- Hairline dividers, square components and minimal rounded corners for a sharper instrument-style appearance. Original artwork and branding, no copies of phrz assets.
+Each row includes:
 
-## Layout (fixed 1460×1150)
+1. Sample name / WAV load button.
+2. **FULL / 5ms** button for playback end behavior.
+3. **SYNC / FREE** button for detected-tempo resampling.
+4. BPM field, editable (40–240, 0 resets to automatic).
+5. Waveform with live sample playhead and two independently editable ranges.
 
-- Top: PHRASER, version tag, file/lane overview.
-- Left, upper: 16 sample-load buttons and precalculated peak waveforms with live playback markers.
-- Right, upper: 12 engine knobs, per-slot start and length random range controls, generator and Keep A/B.
-- Left, lower: 64-step editable grid, plus short explanation of independent playback.
-- Right, lower: **16-ring polyphonic overlap visualization**. Arc position gives phrase trigger time, arc length approximates that voice's sampled duration in song time. Brightened rings indicate audible sample slots, center displays current active voice count, and a thin ray follows the transport.
+No separate RANDOM WINDOWS inspector. Instead:
+- Drag waveform horizontally to choose **start minimum and maximum**; translucent green overlay.
+- Shift+drag to choose **duration minimum and maximum**; thin ochre line at the bottom of the waveform.
+- Edit one WAV without changing ranges for other WAVs.
+- Dragging any range affects **next GENERATE**; already-generated slices remain unchanged.
 
-## Controls
+## Upper right
 
-- Waveform click selects the sample for per-slot random-range editing.
-- Sample button loads WAV.
-- Bottom grid click toggles step, Shift-click assigns selected WAV, right-click locks step.
-- Circular view is currently read-only, designed to explain musical overlap rather than replace the waveform/sequence editing tools.
+Twelve existing rotary controls for global phrase and sound settings, Generate and Keep A/B buttons.
 
-## Future work
+## Bottom left
 
-Resizable UI, keyboard accessibility, multi-voice per-sample playhead markers, adjustable layer count and a zoomable ring/waveform editor.
+Four lines of sixteen step cells (inactive cells dimmed when phrase is shorter).
 
-## v0.6.1 per-source playback switch
+## Bottom right
 
-A compact button inside the selected sample's random-window inspector toggles between **PLAYBACK: FULL SLICE LENGTH** and **PLAYBACK: 5ms FADE AT NEXT STEP**. WAV lane load buttons indicate the mode with **L** or **F**. The circular arc preview abbreviates short-release voices to roughly one step plus 5ms. All other bright studio controls, 16 waveform lanes and 16-ring orbit are retained.
+Read-only circular overlap map; 16 rings show the predicted overlap at the currently detected Live tempo and per-source sync settings. Active sample rings brighten and current active-voice count appears at center.
+
+## Design principles
+
+Original Phraser branding, clear typography, sharp edges, pastel green highlights, restrained source colors and high density without hiding crucial editing controls. Interactive waveform range and per-row toggles take precedence over decorative elements.

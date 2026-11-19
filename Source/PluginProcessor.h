@@ -11,6 +11,7 @@ struct PhraserSample
     static constexpr int waveformPoints = 160;
     juce::AudioBuffer<float> audio;
     double sampleRate = 44100.0;
+    double detectedBpm = 0.0;
     juce::String sourcePath;
     std::vector<float> transients { 0.0f };
     std::array<float, waveformPoints> waveform {};
@@ -39,6 +40,8 @@ struct PhraserSlotSettings
     float lengthMin = 0.08f;
     float lengthMax = 0.35f;
     bool fadeAtNextStep = false;
+    bool syncToHost = false;
+    double manualBpm = 0.0;
 };
 
 // Pattern and sample snapshots are immutable after publication.
@@ -95,6 +98,7 @@ public:
     int getActiveSteps() const;
     int getStepsPerBar() const;
     PhraserSlotSettings getSlotSettings(int slot) const;
+    double getSampleTempo(int slot) const;
     void setSlotSettings(int slot, PhraserSlotSettings);
     juce::AudioProcessorValueTreeState parameters;
 
@@ -106,6 +110,8 @@ private:
     std::array<std::shared_ptr<const PhraserPattern>, 2> keeps;
     std::array<PhraserSlotSettings, numSlots> settings;
     std::array<std::atomic<bool>, numSlots> fadeAtNextStepModes {};
+    std::array<std::atomic<bool>, numSlots> syncToHostModes {};
+    std::array<std::atomic<double>, numSlots> manualTempos {};
     mutable juce::CriticalSection settingsLock;
     juce::AudioFormatManager formatManager;
     juce::Random random;
@@ -129,6 +135,9 @@ private:
         double releaseFrames = 1.0;
         int slot = -1;
         bool fadeAtNextStep = false;
+        bool syncToHost = false;
+        double tempoBpm = 0.0;
+        double baseIncrement = 1.0;
         uint64_t serial = 0;
     };
     static constexpr int maxVoices = 32;

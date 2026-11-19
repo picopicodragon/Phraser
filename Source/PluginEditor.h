@@ -3,7 +3,6 @@
 #include "PluginProcessor.h"
 #include <array>
 
-// Custom JUCE-drawn studio interface. All waveform peaks are precalculated.
 class PhraserAudioProcessorEditor final : public juce::AudioProcessorEditor,
                                           private juce::Timer
 {
@@ -13,36 +12,42 @@ public:
     void paint(juce::Graphics&) override;
     void resized() override;
     void mouseDown(const juce::MouseEvent&) override;
+    void mouseDrag(const juce::MouseEvent&) override;
+    void mouseUp(const juce::MouseEvent&) override;
 
 private:
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
     static constexpr int controlCount = 12;
+    static constexpr float waveLeft = 363.0f;
+    static constexpr float waveWidth = 495.0f;
+    static constexpr float laneTop = 102.0f;
+    static constexpr float lanePitch = 30.0f;
+
     PhraserAudioProcessor& processor;
     std::unique_ptr<juce::LookAndFeel_V4> theme;
-    juce::TextButton generateButton { "GENERATE PHRASE" };
+    juce::TextButton generateButton { "GENERATE" };
     std::array<juce::TextButton, PhraserAudioProcessor::numSlots> slotButtons;
+    std::array<juce::TextButton, PhraserAudioProcessor::numSlots> modeButtons;
+    std::array<juce::TextButton, PhraserAudioProcessor::numSlots> syncButtons;
+    std::array<juce::Label, PhraserAudioProcessor::numSlots> tempoLabels;
     std::array<juce::TextButton, 2> saveButtons, recallButtons;
     std::array<juce::Slider, controlCount> sliders;
     std::array<juce::Label, controlCount> sliderLabels;
     std::array<std::unique_ptr<SliderAttachment>, controlCount> attachments;
-    juce::TextButton playbackModeButton { "MODE: FULL LENGTH" };
-    std::array<juce::Slider, 4> rangeSliders;
-    std::array<juce::Label, 4> rangeLabels;
     juce::Label status;
     std::unique_ptr<juce::FileChooser> chooser;
     int selectedSlot = 0;
+    int dragSlot = -1;
+    float dragAnchor = 0.0f;
+    bool dragDuration = false;
     int lastStep = -2;
 
     void timerCallback() override;
-    void updateSlotButtons();
-    void updateRanges();
-    void applyRanges();
-    void updatePlaybackMode();
+    void updateSlotControls();
     void loadSlot(int index);
     void paintLanes(juce::Graphics&);
     void paintSequence(juce::Graphics&);
     void paintOverlapOrbit(juce::Graphics&);
-    void paintPanel(juce::Graphics&);
-    void updateInfo();
+    void applyWaveDrag(const juce::MouseEvent&);
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PhraserAudioProcessorEditor)
 };
