@@ -39,6 +39,7 @@ private:
     void loadSlot(int index);
     void paintLanes(juce::Graphics&);
     void paintSequence(juce::Graphics&);
+    void paintOverlapOrbit(juce::Graphics&);
     void paintPanel(juce::Graphics&);
     void updateInfo();
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PhraserAudioProcessorEditor)
