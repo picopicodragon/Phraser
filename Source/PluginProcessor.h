@@ -143,6 +143,10 @@ private:
         double pitchIncrement = 1.0; // Tuning, independent of timeline advance.
         double sourceStart = 0.0;
         int pitchSemitones = 0;
+        static constexpr int grainTimeMs = 30;
+        int grainHopFrames = 1;
+        int64_t currentGrainHop = -1;
+        std::array<double, 2> grainStarts {};
         uint64_t serial = 0;
     };
     static constexpr int maxVoices = 32;
