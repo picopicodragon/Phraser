@@ -33,6 +33,8 @@ juce_add_plugin(Phraser
     VST3_CATEGORIES "Instrument" "Sampler"
 )
 
+juce_generate_juce_header(Phraser)
+
 target_sources(Phraser PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginProcessor.h
