@@ -131,6 +131,23 @@ PhraserAudioProcessorEditor::PhraserAudioProcessorEditor(PhraserAudioProcessor& 
             repaint();
         };
         addAndMakeVisible(bpm);
+
+        auto& tuning = pitchLabels[static_cast<size_t>(i)];
+        tuning.setEditable(true, true, false);
+        tuning.setJustificationType(juce::Justification::centred);
+        tuning.setColour(juce::Label::backgroundColourId, white);
+        tuning.setColour(juce::Label::outlineColourId, rule);
+        tuning.setTooltip("Independent WAV pitch in semitones (-12..+12). Tempo SYNC preserves this tuning.");
+        tuning.onTextChange = [this, i]
+        {
+            auto setting = processor.getSlotSettings(i);
+            const auto entered = pitchLabels[static_cast<size_t>(i)].getText().trim();
+            setting.pitchSemitones = juce::jlimit(-12, 12, entered.getIntValue());
+            processor.setSlotSettings(i, setting);
+            updateSlotControls();
+            repaint();
+        };
+        addAndMakeVisible(tuning);
     }
 
     for (int i = 0; i < 2; ++i)
@@ -180,7 +197,7 @@ PhraserAudioProcessorEditor::PhraserAudioProcessorEditor(PhraserAudioProcessor& 
     }
 
     status.setColour(juce::Label::textColourId, muted);
-    status.setText("Waveform: drag = START range; SHIFT+drag = LENGTH range; BPM: click to edit, 0 = auto.",
+    status.setText("Drag wave = start range; SHIFT+drag = length. BPM: 0 = auto. PITCH: per-WAV semitones.",
                    juce::dontSendNotification);
     addAndMakeVisible(status);
     updateSlotControls();
@@ -219,6 +236,10 @@ void PhraserAudioProcessorEditor::updateSlotControls()
         tempo.setTooltip(setting.manualBpm > 0.0
             ? "Manual BPM. Type 0 to return to auto-detection."
             : "Estimated BPM. Click to override (40-240); type 0 for auto.");
+        pitchLabels[static_cast<size_t>(i)].setText(
+            juce::String(setting.pitchSemitones > 0 ? "+" : "")
+                + juce::String(setting.pitchSemitones),
+            juce::dontSendNotification);
     }
 }
 
@@ -375,7 +396,6 @@ void PhraserAudioProcessorEditor::paintOverlapOrbit(juce::Graphics& g)
     const auto phrase = processor.getPatternSnapshot();
     const double hostBpm = juce::jmax(20.0, processor.getHostBpm());
     const double phraseSeconds = 4.0 * (active / processor.getStepsPerBar()) * 60.0 / hostBpm;
-    const auto globalPitch = processor.parameters.getRawParameterValue("pitch")->load();
 
     g.setColour(white);
     g.fillRoundedRectangle(881.0f, 454.0f, 376.0f, 337.0f, 3.0f);
@@ -404,11 +424,8 @@ void PhraserAudioProcessorEditor::paintOverlapOrbit(juce::Graphics& g)
             {
                 const auto& e = phrase.events[static_cast<size_t>(i)];
                 if (!e.enabled || e.slot != slot) continue;
-                const double semitones = juce::jlimit(-24.0, 24.0,
-                    static_cast<double>(e.semitones) + globalPitch);
                 const double seconds = e.length * source->audio.getNumSamples()
-                    / source->sampleRate / std::pow(2.0, semitones / 12.0)
-                    / tempoRatio;
+                    / source->sampleRate / tempoRatio;
                 const double shown = settings.fadeAtNextStep
                     ? juce::jmin(seconds, phraseSeconds / active + 0.005) : seconds;
                 const float a0 = (static_cast<float>(i) / active) * twoPi;
@@ -458,7 +475,7 @@ void PhraserAudioProcessorEditor::paint(juce::Graphics& g)
     g.drawText("PHRASER", 23, 16, 182, 35, juce::Justification::centredLeft);
     g.setColour(muted);
     g.setFont(juce::FontOptions(11.0f));
-    g.drawText("WAVE EDIT + TEMPO / v0.7", 203, 23, 260, 21,
+    g.drawText("PITCH-INDEPENDENT SYNC / v0.8", 203, 23, 285, 21,
                juce::Justification::centredLeft);
     g.drawText("DRAG wave: START FROM / TO     SHIFT+DRAG: LENGTH MIN / MAX",
                23, 58, 850, 22, juce::Justification::centredLeft);
@@ -470,8 +487,9 @@ void PhraserAudioProcessorEditor::paint(juce::Graphics& g)
     g.drawText("END", 170, 88, 45, 15, juce::Justification::centredLeft);
     g.drawText("CLOCK", 226, 88, 60, 15, juce::Justification::centredLeft);
     g.drawText("BPM", 293, 88, 55, 15, juce::Justification::centred);
-    g.drawText("WAVEFORM / START RANGE (GREEN) / DURATION RANGE (OCHRE)",
-               364, 88, 497, 15, juce::Justification::centredLeft);
+    g.drawText("TUNE", 355, 88, 60, 15, juce::Justification::centred);
+    g.drawText("WAVEFORM / START (GREEN) / DURATION (OCHRE)",
+               428, 88, 430, 15, juce::Justification::centredLeft);
 
     paintLanes(g);
     g.setColour(white);
@@ -489,7 +507,7 @@ void PhraserAudioProcessorEditor::paint(juce::Graphics& g)
 
     g.setColour(muted);
     g.setFont(juce::FontOptions(10.0f));
-    g.drawText("SYNC uses tempo-based resampling (pitch changes). BPM is an estimate; click to edit, 0 = auto.",
+    g.drawText("SYNC changes duration without changing pitch. TUNE = -12..+12 semitones; BPM = 0 for automatic.",
                22, 789, 843, 19, juce::Justification::centredLeft);
 }
 
@@ -502,6 +520,7 @@ void PhraserAudioProcessorEditor::resized()
         modeButtons[static_cast<size_t>(i)].setBounds(166, y, 54, 24);
         syncButtons[static_cast<size_t>(i)].setBounds(224, y, 60, 24);
         tempoLabels[static_cast<size_t>(i)].setBounds(291, y, 60, 24);
+        pitchLabels[static_cast<size_t>(i)].setBounds(355, y, 62, 24);
     }
     for (int i = 0; i < controlCount; ++i)
     {
