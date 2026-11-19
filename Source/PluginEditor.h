@@ -1,6 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
+#include <array>
 
 class PhraserAudioProcessorEditor final : public juce::AudioProcessorEditor
 {
@@ -12,15 +13,19 @@ public:
 
 private:
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
-    void configureSlider(juce::Slider&, juce::Label&, const juce::String&);
+    void refreshButtons();
+    void loadSlot(int slot);
 
     PhraserAudioProcessor& processor;
-    juce::TextButton loadButton { "Load WAV" };
-    juce::TextButton randomizeButton { "Randomize" };
+    juce::TextButton randomizeButton { "GENERATE" };
     juce::Label status;
-    juce::Slider densitySlider, sliceSlider, gainSlider;
-    juce::Label densityLabel, sliceLabel, gainLabel;
-    std::unique_ptr<SliderAttachment> densityAttachment, sliceAttachment, gainAttachment;
+    std::array<juce::TextButton, PhraserAudioProcessor::numSlots> slotButtons;
+    std::array<juce::TextButton, PhraserAudioProcessor::numSteps> stepButtons;
+    std::array<juce::TextButton, PhraserAudioProcessor::numSteps> lockButtons;
+    std::array<juce::Slider, 6> sliders;
+    std::array<juce::Label, 6> sliderLabels;
+    std::array<std::unique_ptr<SliderAttachment>, 6> attachments;
     std::unique_ptr<juce::FileChooser> chooser;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PhraserAudioProcessorEditor)
 };
