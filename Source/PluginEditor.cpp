@@ -177,6 +177,7 @@ PhraserAudioProcessorEditor::PhraserAudioProcessorEditor(PhraserAudioProcessor& 
         settings.fadeAtNextStep = !settings.fadeAtNextStep;
         processor.setSlotSettings(selectedSlot, settings);
         updatePlaybackMode();
+        updateSlotButtons();
         status.setText(settings.fadeAtNextStep
             ? "Selected WAV: release over 5ms when the next step starts"
             : "Selected WAV: play each slice for its full programmed duration",
@@ -206,7 +207,8 @@ void PhraserAudioProcessorEditor::updateSlotButtons()
     {
         auto& button = slotButtons[static_cast<size_t>(i)];
         button.setButtonText(juce::String(i + 1).paddedLeft('0', 2)
-                             + "   " + processor.getSlotName(i).substring(0, 14));
+                             + (processor.getSlotSettings(i).fadeAtNextStep ? " F  " : " L  ")
+                             + processor.getSlotName(i).substring(0, 12));
         button.setColour(juce::TextButton::buttonColourId,
             i == selectedSlot ? juce::Colour { 0xffb7d9c5 } : juce::Colour { 0xffe3ece6 });
     }
@@ -437,9 +439,13 @@ void PhraserAudioProcessorEditor::paintOverlapOrbit(juce::Graphics& g)
                     static_cast<double>(e.semitones) + pitchParameter->load());
                 const double seconds = e.length * source->audio.getNumSamples()
                     / source->sampleRate / std::pow(2.0, semitones / 12.0);
+                const double stepSeconds = phraseSeconds / active;
+                const bool shortMode = processor.getSlotSettings(slot).fadeAtNextStep;
+                const double displayedSeconds = shortMode
+                    ? juce::jmin(seconds, stepSeconds + 0.005) : seconds;
                 const float start = (static_cast<float>(step) / active) * twoPi;
                 const float span = juce::jlimit(0.012f, twoPi - 0.03f,
-                    static_cast<float>(seconds / phraseSeconds) * twoPi);
+                    static_cast<float>(displayedSeconds / phraseSeconds) * twoPi);
                 juce::Path arc;
                 arc.addCentredArc(cx, cy, radius, radius, 0.0f,
                                  start, start + span, true);
