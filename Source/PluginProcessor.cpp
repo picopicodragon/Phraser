@@ -85,12 +85,12 @@ void PhraserAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
     if (!localSample || !localPattern || engineSampleRate <= 0.0)
         return;
 
-    const auto* playHead = getPlayHead();
-    if (playHead == nullptr)
+    const auto* hostPlayHead = getPlayHead();
+    if (hostPlayHead == nullptr)
         return;
 
-    const auto position = playHead->getPosition();
-    if (!position || !position->getIsPlaying().orFallback(false))
+    const auto position = hostPlayHead->getPosition();
+    if (!position || !position->getIsPlaying())
     {
         previousStep = -1;
         voicePosition = voiceEnd = 0.0;
