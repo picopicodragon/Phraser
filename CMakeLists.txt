@@ -42,6 +42,7 @@ target_sources(Phraser PRIVATE
     Source/PluginEditor.h
     Source/TransientDetection.h
     Source/TempoDetection.h
+    Source/GrainAlignment.h
 )
 
 # JUCE/HarfBuzz source files contain UTF-8 characters that MSVC otherwise
