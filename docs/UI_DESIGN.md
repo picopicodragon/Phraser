@@ -1,33 +1,30 @@
-# v0.5 Waveform Matrix Design
+# Phraser v0.6: Light Waveform Matrix + Overlap Orbit
 
-The first Orbit layout was replaced by a sharper, denser production workstation interface, inspired by high-contrast sample engines but wholly original to Phraser.
+The design retains v0.5's 16 independent waveform lanes and precise step editing while adding a circular musical overlap overview.
 
-## Appearance
+## Visual language
 
-- Fixed 1460×950 desktop canvas built with JUCE Graphics, no WebView.
-- Graphite background (#0B1015) and low-chroma slate panels (#161D25).
-- Single bright lime marker (#D5FA66) for playhead and critical emphasis.
-- Waveforms use four restrained colour families across 16 slots rather than a neon rainbow.
-- Tiny radii (2–5px), hairline dividers, compact uppercase section titles.
+- Warm off-white background #EDF2EF with pale panels #FCFDFB.
+- Dark forest ink #1E3029 for typography, muted green-grey metadata.
+- Single fresh green highlight #238B60 for playheads and primary emphasis.
+- Four muted source families (sea-green, amber, violet, rose), each used across four sample slots.
+- Hairline dividers, square components and minimal rounded corners for a sharper instrument-style appearance. Original artwork and branding, no copies of phrz assets.
 
-## Zones
+## Layout (fixed 1460×1150)
 
-- Header: PHRASER / WAVEFORM MATRIX v0.5.
-- Left: 16 simultaneous waveform lanes; each lane has a numbered WAV load button and a per-sample peak envelope.
-- Selected lane: pale amber overlay showing its random start window; start bounds shown as vertical dividers.
-- Live playback: lime vertical marker per active sample, updated roughly 24 times/sec from audio-block atomic indicators.
-- Right: 12 knobs, four per-sample randomness sliders, Generate and Keep/Recall A/B.
-- Bottom: 4 rows × 16-step overview; inactive cells subdued when the selected total length is below 64.
+- Top: PHRASER, version tag, file/lane overview.
+- Left, upper: 16 sample-load buttons and precalculated peak waveforms with live playback markers.
+- Right, upper: 12 engine knobs, per-slot start and length random range controls, generator and Keep A/B.
+- Left, lower: 64-step editable grid, plus short explanation of independent playback.
+- Right, lower: **16-ring polyphonic overlap visualization**. Arc position gives phrase trigger time, arc length approximates that voice's sampled duration in song time. Brightened rings indicate audible sample slots, center displays current active voice count, and a thin ray follows the transport.
 
-## Interaction
+## Controls
 
-- Click a WAV's button to select that slot and open file chooser.
-- Click the waveform area to select its slot without reopening chooser.
-- Edit per-sample normalized ranges and press GENERATE PHRASE; randomness is independent for each step and slot.
-- Left-click bottom step to mute; Shift+click to assign selected WAV; right-click to LOCK.
-- Steps-per-bar=8 makes each row represent two bars; steps-per-bar=16 makes each row one bar.
-- All audio playback state is read from atomics and immutable snapshots, not via audio-buffer access from the UI.
+- Waveform click selects the sample for per-slot random-range editing.
+- Sample button loads WAV.
+- Bottom grid click toggles step, Shift-click assigns selected WAV, right-click locks step.
+- Circular view is currently read-only, designed to explain musical overlap rather than replace the waveform/sequence editing tools.
 
-## Pending design work
+## Future work
 
-Window scaling, zoomable waveform inspector, colourblind-accessible patterns, MIDI keyboard navigation, keyboard focus and high DPI testing remain future work.
+Resizable UI, keyboard accessibility, multi-voice per-sample playhead markers, adjustable layer count and a zoomable ring/waveform editor.
