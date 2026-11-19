@@ -4,12 +4,14 @@
 #include <atomic>
 #include <memory>
 #include <limits>
+#include <vector>
 
 struct PhraserSample
 {
     juce::AudioBuffer<float> audio;
     double sampleRate = 44100.0;
     juce::String sourcePath;
+    std::vector<float> transients { 0.0f };
 };
 
 struct SliceEvent
@@ -60,6 +62,7 @@ public:
     void randomizePattern();
     void toggleStep(int step);
     void toggleLock(int step);
+    int getTransientCount(int slot) const;
     PhraserPattern getPatternSnapshot() const;
     juce::AudioProcessorValueTreeState parameters;
 
@@ -73,14 +76,23 @@ private:
     double engineSampleRate = 44100.0;
     int64_t previousStep = std::numeric_limits<int64_t>::min();
 
-    std::shared_ptr<const PhraserSample> activeSample;
-    double voicePosition = 0.0;
-    double voiceStart = 0.0;
-    double voiceEnd = 0.0;
-    double voiceIncrement = 1.0;
-    double voiceRendered = 0.0;
-    double voiceDuration = 1.0;
+    struct Voice
+    {
+        std::shared_ptr<const PhraserSample> source;
+        double position = 0.0;
+        double end = 0.0;
+        double increment = 1.0;
+        double rendered = 0.0;
+        double duration = 1.0;
+        double releaseStart = -1.0;
+        double releaseFrames = 1.0;
+    };
+    static constexpr int maxVoices = 8;
+    std::array<Voice, maxVoices> voices {};
+    int nextVoice = 0;
 
-    void startStep(const SliceEvent&, const std::array<std::shared_ptr<const PhraserSample>, numSlots>&);
+    void startStep(const SliceEvent&,
+                   const std::array<std::shared_ptr<const PhraserSample>, numSlots>&,
+                   double releaseFrames);
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PhraserAudioProcessor)
 };

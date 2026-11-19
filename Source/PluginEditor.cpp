@@ -3,7 +3,7 @@
 PhraserAudioProcessorEditor::PhraserAudioProcessorEditor(PhraserAudioProcessor& p)
     : AudioProcessorEditor(&p), processor(p)
 {
-    setSize(820, 430);
+    setSize(950, 450);
 
     addAndMakeVisible(randomizeButton);
     randomizeButton.onClick = [this]
@@ -45,8 +45,8 @@ PhraserAudioProcessorEditor::PhraserAudioProcessorEditor(PhraserAudioProcessor& 
         addAndMakeVisible(lock);
     }
 
-    const char* ids[] = { "density", "slice", "breaks", "swing", "gain", "fade" };
-    const char* titles[] = { "DENSITY", "SIZE", "BREAKS", "SWING", "GAIN", "FADE" };
+    const char* ids[] = { "density", "slice", "breaks", "swing", "gain", "fade", "transient", "variation" };
+    const char* titles[] = { "DENSITY", "SIZE", "BREAKS", "SWING", "GAIN", "FADE", "SNAP", "VARIATION" };
     for (size_t i = 0; i < sliders.size(); ++i)
     {
         auto& slider = sliders[i];
@@ -78,7 +78,7 @@ void PhraserAudioProcessorEditor::loadSlot(int index)
             if (file == juce::File {}) return;
 
             const bool loaded = safe->processor.loadWavFile(index, file);
-            safe->status.setText(loaded ? "Loaded: " + file.getFileName()
+            safe->status.setText(loaded ? "Loaded: " + file.getFileName() + " / " + juce::String(safe->processor.getTransientCount(index)) + " onset marks"
                                         : "Could not load the selected WAV",
                                  juce::dontSendNotification);
             safe->refreshButtons();
@@ -120,7 +120,7 @@ void PhraserAudioProcessorEditor::paint(juce::Graphics& g)
 
     g.setColour(juce::Colour::fromRGB(130, 145, 154));
     g.setFont(juce::FontOptions(12.0f));
-    g.drawText("4 SAMPLE SLOTS / 16-STEP PHRASE ENGINE", 22, 47, 410, 20,
+    g.drawText("4 SAMPLE SLOTS / 16-STEP PHRASE ENGINE v0.3", 22, 47, 410, 20,
                juce::Justification::centredLeft);
     g.drawText("STEPS: click to toggle, LOCK: preserve across generation",
                22, 290, getWidth() - 44, 18, juce::Justification::centredLeft);
@@ -140,7 +140,7 @@ void PhraserAudioProcessorEditor::resized()
             margin + i * (slotWidth + slotGap), slotY, slotWidth, 35);
 
     const int knobsY = 134;
-    const int knobWidth = (getWidth() - 2 * margin) / 6;
+    const int knobWidth = (getWidth() - 2 * margin) / static_cast<int>(sliders.size());
     for (size_t i = 0; i < sliders.size(); ++i)
     {
         const int x = margin + static_cast<int>(i) * knobWidth;

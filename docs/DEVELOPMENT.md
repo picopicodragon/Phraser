@@ -1,39 +1,40 @@
-# Development / Windows Live 12 acceptance tests
+# v0.3 experimental verification on PC1
 
-## Current stage
-v0.2 experimental: four WAV slots, 16 steps, step locks, swing/rests, envelope and session-state references. No Windows build confirmation yet.
+Keep the last known-good v0.2 VST3 backed up; do not merge experimental v0.3 until built and checked in Ableton Live 12.
 
-## Build on PC1
+## Build
+
 ```powershell
 cd C:\Users\picopicoDragon\Documents\Phraser
-git pull origin main
+git fetch origin
+git switch feature/phrase-engine-v03
 cmake -S . -B build -G "Visual Studio 18 2026" -A x64
 cmake --build build --config Release --target Phraser_VST3
 ```
 
-For a safe rollback, copy the currently working VST3 directory elsewhere **before installing** the new build.
+Build directory may be shared with v0.2 because CMake will regenerate; if configuration becomes invalid use a fresh `build-v03` directory instead.
 
-## Functional checks
-- [ ] Compiles on Visual Studio 2026 without errors, including the GUI and processor.
-- [ ] Ableton Live 12 opens plugin on a MIDI track (event input bus exists).
-- [ ] All four WAV buttons open the chooser and show filenames.
-- [ ] Loaded mono/stereo WAV files both play; different slots sound different.
-- [ ] GENERATE produces different combinations of slices/rests.
-- [ ] Density 0 + Breaks 0 -> empty pattern after Generate.
-- [ ] Density 1 + Breaks 0 -> 16 active steps after Generate.
-- [ ] Step click mutes/unmutes while playback continues.
-- [ ] Lock keeps a step unchanged after Generate, including slot/start/length.
-- [ ] Swing 0 plays straight sixteenths; increasing Swing delays odd steps.
-- [ ] Fade reduces hard edges without causing unexpected silence.
-- [ ] BPM change retains sixteenth-note synchronization.
-- [ ] Save/reopen the Live project restores parameters, step state and WAV paths.
-- [ ] Missing WAV after reopening does not crash Live.
-- [ ] Closing/reopening editor while transport runs does not crash Live.
+## Acceptance checklist
 
-## Known technical debt
-- Disk loading in setStateInformation is synchronous, which may run on a host-sensitive thread. Move loading to a cancellable worker in a future version.
-- Shared_ptr snapshot refcount operations in processBlock are thread-safe but not guaranteed hard real-time safe. Replace with realtime-safe ownership when optimizing.
-- A single active voice means no overlapping slices. Add polyphonic voice management and crossfades.
-- The step engine assumes 4/4, one bar, and derives PPQ at the start of each process block. Host time signature and advanced transport discontinuities need explicit support.
-- Pattern edit operations may conflict if GUI calls race with host state restore. Add a synchronized control-thread mutation queue.
-- No automated audio regression tests; Windows-host validation remains required.
+- [ ] Windows MSVC compiles without errors or C4819 warnings.
+- [ ] VST3 is recognized as a MIDI-capable instrument by Ableton Live 12.
+- [ ] GUI shows 8 knobs, 4 samples, 16 step toggles and 16 locks.
+- [ ] Short percussive WAV reports more than one onset mark.
+- [ ] Sustained/quiet WAV safely reports zero or a small number of additional onset marks.
+- [ ] SNAP=1 and GENERATE tend to choose attacks; SNAP=0 restores free selection.
+- [ ] VARIATION=0 yields more repeat motifs; VARIATION=1 yields no forced repeats.
+- [ ] All four WAV slots can produce different timbres.
+- [ ] Repeated short slices avoid obvious hard-edge clicks; measure output at boundaries.
+- [ ] Repeated fast steps never crash or produce nonfinite samples.
+- [ ] On/off clicks and LOCK preserve existing behavior.
+- [ ] Save and reopen Live project, reload referenced WAV paths and restore phrase and parameters.
+- [ ] CPU usage remains acceptable while playback loops and GUI is open/closed.
+- [ ] Stop/restart and loop jumps do not crash or retain stale voices.
+
+## Known architectural debt
+
+1. Shared-pointer acquisition/destruction on the audio thread may deallocate memory, so hard realtime safety is **not guaranteed**. Replace with deferred reclamation/immutable banks in a later revision.
+2. Onset detection is offline but file loading and state restoration may block callers. Move to worker thread, communicate loaded samples through a realtime-safe handoff.
+3. Voice stealing occurs if all eight voices are occupied. Add configurable polyphony and limiting when needed.
+4. Host discontinuity detection still uses step index; advanced host loop tempo-map behavior needs tests.
+5. No audio-output snapshots, unit tests or automated VST3 pluginval checks yet.
