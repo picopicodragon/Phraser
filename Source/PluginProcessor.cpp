@@ -21,6 +21,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout PhraserAudioProcessor::makeP
     add("fade", "Fade", 0.001f, 0.03f, 0.006f);
     add("transient", "Transient Snap", 0.0f, 1.0f, 1.0f);
     add("variation", "Variation", 0.0f, 1.0f, 0.5f);
+    add("pitch", "Pitch (semitones)", -12.0f, 12.0f, 0.0f);
+    add("pitchspread", "Pitch Spread", 0.0f, 12.0f, 0.0f);
     return { params.begin(), params.end() };
 }
 
@@ -44,6 +46,7 @@ void PhraserAudioProcessor::prepareToPlay(double newRate, int)
     previousStep = std::numeric_limits<int64_t>::min();
     for (auto& voice : voices) voice = {};
     nextVoice = 0;
+    currentStep.store(-1, std::memory_order_relaxed);
 }
 
 bool PhraserAudioProcessor::loadWavFile(int slot, const juce::File& file)
@@ -101,6 +104,7 @@ void PhraserAudioProcessor::randomizePattern()
     const auto size = parameters.getRawParameterValue("slice")->load();
     const auto variation = parameters.getRawParameterValue("variation")->load();
     const auto snap = parameters.getRawParameterValue("transient")->load();
+    const auto spread = parameters.getRawParameterValue("pitchspread")->load();
     std::array<int, numSlots> loaded {};
     int count = 0;
     for (int i = 0; i < numSlots; ++i)
@@ -131,6 +135,8 @@ void PhraserAudioProcessor::randomizePattern()
 
         e.slot = count > 0 ? loaded[static_cast<size_t>(random.nextInt(count))] : anchor;
         e.length = size;
+        const int maxSpread = juce::jlimit(0, 12, static_cast<int>(std::round(spread)));
+        e.semitones = maxSpread > 0 ? random.nextInt(2 * maxSpread + 1) - maxSpread : 0;
         e.offset = (variation < 0.25f && (i % 4) != 0)
             ? anchorOffset : random.nextFloat() * 0.94f;
         if (i % 4 == 0) anchorOffset = e.offset;
@@ -168,6 +174,29 @@ void PhraserAudioProcessor::toggleLock(int index)
     auto& e = next->events[static_cast<size_t>(index)];
     e.locked = !e.locked;
     std::atomic_store(&pattern, std::shared_ptr<const PhraserPattern>(next));
+}
+
+void PhraserAudioProcessor::setStepSlot(int step, int slot)
+{
+    if (!juce::isPositiveAndBelow(step, numSteps) || !juce::isPositiveAndBelow(slot, numSlots)) return;
+    auto next = std::make_shared<PhraserPattern>(getPatternSnapshot());
+    next->events[static_cast<size_t>(step)].slot = slot;
+    next->events[static_cast<size_t>(step)].enabled = true;
+    std::atomic_store(&pattern, std::shared_ptr<const PhraserPattern>(next));
+}
+
+void PhraserAudioProcessor::saveKeep(int index)
+{
+    if (!juce::isPositiveAndBelow(index, 2)) return;
+    auto snapshot = std::atomic_load(&pattern);
+    std::atomic_store(&keeps[static_cast<size_t>(index)], snapshot);
+}
+
+void PhraserAudioProcessor::recallKeep(int index)
+{
+    if (!juce::isPositiveAndBelow(index, 2)) return;
+    auto remembered = std::atomic_load(&keeps[static_cast<size_t>(index)]);
+    if (remembered) std::atomic_store(&pattern, remembered);
 }
 
 void PhraserAudioProcessor::startStep(
@@ -209,7 +238,11 @@ void PhraserAudioProcessor::startStep(
     const double last = static_cast<double>(source->audio.getNumSamples() - 1);
     v.position = juce::jlimit(0.0, last - 1.0, event.offset * last);
     v.end = juce::jmin(last, v.position + event.length * (last + 1.0));
-    v.increment = source->sampleRate / engineSampleRate;
+    const auto globalPitch = parameters.getRawParameterValue("pitch")->load();
+    const auto semitones = juce::jlimit(-24.0, 24.0,
+        static_cast<double>(event.semitones) + static_cast<double>(globalPitch));
+    // Resampling pitch changes playback speed/duration; not a time-stretch algorithm.
+    v.increment = source->sampleRate / engineSampleRate * std::pow(2.0, semitones / 12.0);
     v.duration = juce::jmax(1.0, (v.end - v.position) / v.increment);
     voices[static_cast<size_t>(selected)] = std::move(v);
 }
@@ -232,6 +265,7 @@ void PhraserAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
     if (!position || !position->getIsPlaying())
     {
         previousStep = std::numeric_limits<int64_t>::min();
+        currentStep.store(-1, std::memory_order_relaxed);
         for (auto& voice : voices) voice = {};
         return;
     }
@@ -259,6 +293,7 @@ void PhraserAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
         if (step != previousStep)
         {
             previousStep = step;
+            currentStep.store(static_cast<int>((step % numSteps + numSteps) % numSteps), std::memory_order_relaxed);
             const int index = static_cast<int>((step % numSteps + numSteps) % numSteps);
             startStep(localPattern->events[static_cast<size_t>(index)],
                       available, crossfadeFrames);
@@ -315,7 +350,7 @@ void PhraserAudioProcessor::getStateInformation(juce::MemoryBlock& destination)
 {
     auto xml = parameters.copyState().createXml();
     if (!xml) return;
-    xml->setAttribute("phraserVersion", 2);
+    xml->setAttribute("phraserVersion", 4);
     for (int i = 0; i < numSlots; ++i)
     {
         auto loaded = std::atomic_load(&samples[static_cast<size_t>(i)]);
@@ -333,6 +368,24 @@ void PhraserAudioProcessor::getStateInformation(juce::MemoryBlock& destination)
         element->setAttribute("slot", e.slot);
         element->setAttribute("offset", e.offset);
         element->setAttribute("length", e.length);
+        element->setAttribute("pitch", e.semitones);
+    }
+    for (int k = 0; k < 2; ++k)
+    {
+        const auto kept = std::atomic_load(&keeps[static_cast<size_t>(k)]);
+        if (!kept) continue;
+        auto* memory = xml->createNewChildElement("Keep");
+        memory->setAttribute("index", k);
+        for (const auto& e : kept->events)
+        {
+            auto* el = memory->createNewChildElement("Step");
+            el->setAttribute("on", e.enabled);
+            el->setAttribute("hold", e.locked);
+            el->setAttribute("slot", e.slot);
+            el->setAttribute("offset", e.offset);
+            el->setAttribute("length", e.length);
+            el->setAttribute("pitch", e.semitones);
+        }
     }
     copyXmlToBinary(*xml, destination);
 }
@@ -370,17 +423,41 @@ void PhraserAudioProcessor::setStateInformation(const void* data, int size)
                                       static_cast<float>(element->getDoubleAttribute("offset", 0)));
                 e.length = juce::jlimit(0.02f, 1.0f,
                                       static_cast<float>(element->getDoubleAttribute("length", 0.25)));
+                e.semitones = juce::jlimit(-12, 12, element->getIntAttribute("pitch", 0));
             }
             std::atomic_store(&pattern, std::shared_ptr<const PhraserPattern>(restored));
         }
     }
 
-    // Remove our custom child before passing the ValueTree to APVTS.
+    for (auto* keep : xml->getChildIterator())
+    {
+        if (!keep->hasTagName("Keep")) continue;
+        const int k = keep->getIntAttribute("index", -1);
+        if (!juce::isPositiveAndBelow(k, 2) || keep->getNumChildElements() != numSteps) continue;
+        auto remembered = std::make_shared<PhraserPattern>();
+        for (int i = 0; i < numSteps; ++i)
+        {
+            const auto* el = keep->getChildElement(i);
+            auto& e = remembered->events[static_cast<size_t>(i)];
+            e.enabled = el->getBoolAttribute("on", true);
+            e.locked = el->getBoolAttribute("hold", false);
+            e.slot = juce::jlimit(0, numSlots - 1, el->getIntAttribute("slot", 0));
+            e.offset = juce::jlimit(0.0f, 0.99f, static_cast<float>(el->getDoubleAttribute("offset", 0)));
+            e.length = juce::jlimit(0.02f, 1.0f, static_cast<float>(el->getDoubleAttribute("length", 0.25)));
+            e.semitones = juce::jlimit(-12, 12, el->getIntAttribute("pitch", 0));
+        }
+        std::atomic_store(&keeps[static_cast<size_t>(k)], std::shared_ptr<const PhraserPattern>(remembered));
+    }
+
+    // Remove our custom children before passing the ValueTree to APVTS.
     auto stateXml = juce::parseXML(xml->toString());
     if (stateXml)
     {
         if (auto* phrase = stateXml->getChildByName("Phrase"))
             stateXml->removeChildElement(phrase, true);
+        for (int i = stateXml->getNumChildElements() - 1; i >= 0; --i)
+            if (stateXml->getChildElement(i)->hasTagName("Keep"))
+                stateXml->removeChildElement(stateXml->getChildElement(i), true);
         parameters.replaceState(juce::ValueTree::fromXml(*stateXml));
     }
 }
