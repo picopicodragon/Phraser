@@ -368,7 +368,15 @@ void PhraserAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
         available[static_cast<size_t>(i)] = std::atomic_load(&samples[static_cast<size_t>(i)]);
 
     const auto* host = getPlayHead();
-    const auto position = host ? host->getPosition() : juce::Optional<juce::AudioPlayHead::PositionInfo> {};
+    if (host == nullptr)
+    {
+        previousStep = std::numeric_limits<int64_t>::min();
+        currentStep.store(-1, std::memory_order_relaxed);
+        for (auto& voice : voices) voice = {};
+        for (auto& indicator : playPositions) indicator.store(-1.0f, std::memory_order_relaxed);
+        return;
+    }
+    const auto position = host->getPosition();
     if (!position || !position->getIsPlaying())
     {
         previousStep = std::numeric_limits<int64_t>::min();
