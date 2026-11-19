@@ -21,6 +21,7 @@ struct SliceEvent
     int slot = 0;
     bool enabled = true;
     bool locked = false;
+    int semitones = 0;
 };
 
 struct PhraserPattern
@@ -62,6 +63,10 @@ public:
     void randomizePattern();
     void toggleStep(int step);
     void toggleLock(int step);
+    void setStepSlot(int step, int slot);
+    void saveKeep(int index);
+    void recallKeep(int index);
+    int getCurrentStep() const { return currentStep.load(std::memory_order_relaxed); }
     int getTransientCount(int slot) const;
     PhraserPattern getPatternSnapshot() const;
     juce::AudioProcessorValueTreeState parameters;
@@ -71,6 +76,8 @@ private:
 
     std::array<std::shared_ptr<const PhraserSample>, numSlots> samples;
     std::shared_ptr<const PhraserPattern> pattern;
+    std::array<std::shared_ptr<const PhraserPattern>, 2> keeps;
+    std::atomic<int> currentStep { -1 };
     juce::AudioFormatManager formatManager;
     juce::Random random;
     double engineSampleRate = 44100.0;
