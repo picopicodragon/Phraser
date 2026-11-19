@@ -25,6 +25,7 @@ private:
     std::array<juce::Slider, controlCount> sliders;
     std::array<juce::Label, controlCount> sliderLabels;
     std::array<std::unique_ptr<SliderAttachment>, controlCount> attachments;
+    juce::TextButton playbackModeButton { "MODE: FULL LENGTH" };
     std::array<juce::Slider, 4> rangeSliders;
     std::array<juce::Label, 4> rangeLabels;
     juce::Label status;
@@ -36,6 +37,7 @@ private:
     void updateSlotButtons();
     void updateRanges();
     void applyRanges();
+    void updatePlaybackMode();
     void loadSlot(int index);
     void paintLanes(juce::Graphics&);
     void paintSequence(juce::Graphics&);
