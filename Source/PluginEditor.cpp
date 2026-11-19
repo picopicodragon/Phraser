@@ -169,11 +169,27 @@ PhraserAudioProcessorEditor::PhraserAudioProcessorEditor(PhraserAudioProcessor& 
         addAndMakeVisible(label);
     }
 
+    playbackModeButton.setColour(juce::TextButton::buttonColourId,
+                                 juce::Colour { 0xffd0e7d8 });
+    playbackModeButton.onClick = [this]
+    {
+        auto settings = processor.getSlotSettings(selectedSlot);
+        settings.fadeAtNextStep = !settings.fadeAtNextStep;
+        processor.setSlotSettings(selectedSlot, settings);
+        updatePlaybackMode();
+        status.setText(settings.fadeAtNextStep
+            ? "Selected WAV: release over 5ms when the next step starts"
+            : "Selected WAV: play each slice for its full programmed duration",
+            juce::dontSendNotification);
+    };
+    addAndMakeVisible(playbackModeButton);
+
     status.setText("Select a WAV lane, then edit its start/length random ranges.",
                    juce::dontSendNotification);
     status.setColour(juce::Label::textColourId, muted);
     addAndMakeVisible(status);
     updateRanges();
+    updatePlaybackMode();
     updateSlotButtons();
     startTimerHz(24);
 }
@@ -205,12 +221,23 @@ void PhraserAudioProcessorEditor::updateRanges()
     for (int i = 0; i < 4; ++i)
         rangeSliders[static_cast<size_t>(i)].setValue(
             values[static_cast<size_t>(i)], juce::dontSendNotification);
-    repaint(1025, 454, 425, 183);
+    updatePlaybackMode();
+    repaint(1025, 454, 425, 200);
+}
+
+void PhraserAudioProcessorEditor::updatePlaybackMode()
+{
+    const bool fade = processor.getSlotSettings(selectedSlot).fadeAtNextStep;
+    playbackModeButton.setButtonText(fade
+        ? "PLAYBACK: 5ms FADE AT NEXT STEP"
+        : "PLAYBACK: FULL SLICE LENGTH");
+    playbackModeButton.setColour(juce::TextButton::buttonColourId,
+        fade ? juce::Colour { 0xfff0dfc7 } : juce::Colour { 0xffd0e7d8 });
 }
 
 void PhraserAudioProcessorEditor::applyRanges()
 {
-    PhraserSlotSettings settings;
+    auto settings = processor.getSlotSettings(selectedSlot);
     settings.startMin = static_cast<float>(rangeSliders[0].getValue());
     settings.startMax = static_cast<float>(rangeSliders[1].getValue());
     settings.lengthMin = static_cast<float>(rangeSliders[2].getValue());
@@ -468,10 +495,8 @@ void PhraserAudioProcessorEditor::paintPanel(juce::Graphics& g)
                juce::Justification::centredLeft);
     g.setColour(muted);
     g.setFont(juce::FontOptions(10.0f));
-    g.drawText("START RANGE  =  portion of WAV available to the generator",
-               1046, 619, 367, 17, juce::Justification::centredLeft);
-    g.drawText("LENGTH RANGE =  random slice duration in WAV proportions",
-               1046, 634, 367, 17, juce::Justification::centredLeft);
+    g.drawText("Mode applies to new triggers for this sample slot.",
+               1046, 645, 367, 12, juce::Justification::centredLeft);
 }
 
 void PhraserAudioProcessorEditor::paint(juce::Graphics& g)
@@ -484,7 +509,7 @@ void PhraserAudioProcessorEditor::paint(juce::Graphics& g)
     g.fillRect(28, 71, 92, 3);
     g.setColour(muted);
     g.setFont(juce::FontOptions(11.0f));
-    g.drawText("WAVEFORM MATRIX + OVERLAP ORBIT  /  v0.6", 250, 36, 300, 20,
+    g.drawText("WAVEFORM MATRIX + OVERLAP ORBIT  /  v0.6.1", 250, 36, 300, 20,
                juce::Justification::centredLeft);
     g.drawText("16 SOURCES   /   1-4 BARS   /   8 OR 16 STEPS PER BAR",
                612, 36, 570, 20, juce::Justification::centredRight);
@@ -529,6 +554,7 @@ void PhraserAudioProcessorEditor::resized()
         rangeLabels[static_cast<size_t>(i)].setBounds(1047, 480 + 35 * i, 106, 27);
         rangeSliders[static_cast<size_t>(i)].setBounds(1154, 480 + 35 * i, 259, 27);
     }
+    playbackModeButton.setBounds(1046, 617, 367, 27);
     generateButton.setBounds(1046, 657, 367, 32);
     for (int i = 0; i < 2; ++i)
     {
