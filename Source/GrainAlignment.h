@@ -2,6 +2,7 @@
 #include <JuceHeader.h>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 // Small, allocation-free waveform-similarity search for each new granular
 // overlap. This avoids phase cancellation / audible pitch wobble on sustained
