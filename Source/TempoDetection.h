@@ -13,21 +13,26 @@ namespace phraser
 inline double estimateSampleBpm(const std::vector<float>& onsetPositions,
                                 int totalSamples, double sampleRate)
 {
-    if (sampleRate <= 0.0 || totalSamples <= 0 || onsetPositions.size() < 5)
+    if (!std::isfinite(sampleRate) || sampleRate <= 0.0
+        || totalSamples <= 0 || onsetPositions.size() < 5)
         return 0.0;
     const double duration = static_cast<double>(totalSamples) / sampleRate;
-    if (duration < 1.5) return 0.0;
+    if (!std::isfinite(duration) || duration < 1.5) return 0.0;
 
     // Pairwise onset spacings are compared with candidate beat durations.
     // 0.5, 1, 2, and 4 beat intervals are permitted, with nearest neighbors weighted most.
-    std::array<double, 161> scores {};
+    constexpr int minBpm = 70;
+    constexpr int maxBpm = 180;
+    // Indexed directly by BPM. The old 161-element array was written at
+    // indices 161..180 and corrupted the stack during WAV loading.
+    std::array<double, maxBpm + 1> scores {};
     for (size_t i = 1; i < onsetPositions.size(); ++i)
     {
         for (size_t j = i + 1; j < std::min(onsetPositions.size(), i + 9); ++j)
         {
             const double delta = (onsetPositions[j] - onsetPositions[i]) * duration;
-            if (delta < 0.085 || delta > 4.0) continue;
-            for (int bpm = 70; bpm <= 180; ++bpm)
+            if (!std::isfinite(delta) || delta < 0.085 || delta > 4.0) continue;
+            for (int bpm = minBpm; bpm <= maxBpm; ++bpm)
             {
                 const double beat = 60.0 / bpm;
                 double nearest = 0.0;
