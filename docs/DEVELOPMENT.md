@@ -1,40 +1,33 @@
-# v0.6 build and QA gate
+# v0.6.1 release-mode acceptance tests
 
-The v0.6 branch adds 32 independent sample voices and a bright circular overlap visualization to the 16-WAV v0.5 workstation. Merge only after testing; v0.5/v0.4 branches remain separate.
+Two options per WAV slot:
+- FULL SLICE LENGTH (default): full independent slice sustain.
+- 5ms FADE AT NEXT STEP: fade that slot's existing voices for 5ms when sequencer advances, including on rest steps.
 
 ## Windows build
 
 ```powershell
 cd C:\Users\picopicoDragon\Documents\Phraser
 git fetch origin
-git switch -c feature/v06-polyphonic-light-orbit --track origin/feature/v06-polyphonic-light-orbit
-cmake -S . -B build-v06 -G "Visual Studio 18 2026" -A x64
-cmake --build build-v06 --config Release --target Phraser_VST3
+git switch -c feature/v061-per-slot-playback-mode --track origin/feature/v061-per-slot-playback-mode
+cmake -S . -B build-v061 -G "Visual Studio 18 2026" -A x64
+cmake --build build-v061 --config Release --target Phraser_VST3
 ```
 
-## Acceptance checklist
+## Checklist
 
-- [ ] Build succeeds with MSVC, no JUCE/MSVC C4819 regression.
-- [ ] Ableton Live 12 loads instrument, and no startup error occurs.
-- [ ] GUI is visibly brighter, waveforms legible, original color identity.
-- [ ] All 16 WAV files still load and display peaks.
-- [ ] 16-ring overlap circle renders 16 distinguishable tracks and arc spans.
-- [ ] Current voice count rises above 1 when long slices overlap at fast tempo.
-- [ ] The same WAV can retrigger while the previous slice still sounds.
-- [ ] A rest step does **not** cut the previous sample.
-- [ ] Voice ends at its own slice boundary with envelope; no sudden cutoff on next normal step.
-- [ ] With 32 active voices, the oldest voice is stolen without crash (may click).
-- [ ] The orbit highlights every sample slot that currently has one or more active voices.
-- [ ] Waveform playback markers remain functional; sample timing and step grid still editable.
-- [ ] Saved Ableton project restores all WAV slots, pattern, range settings and Keep A/B.
-- [ ] Tempo 80→160 with long slices, transport stop/restart, and loop seeks do not crash.
-- [ ] Output levels stay controllable. Layering can exceed 0 dBFS, so test gain reduction.
-- [ ] Monitor CPU at 44.1k/48k with 16 samples and many overlapping voices.
+- [ ] Windows VST3 compilation completes without errors.
+- [ ] Live 12 loads Phraser and shows playback mode button in selected WAV inspector.
+- [ ] Every sample slot has its own mode. Switching slot restores its own selection.
+- [ ] Mode button changes only future triggers and does not alter sample random-start or random-length controls.
+- [ ] FULL LENGTH notes persist across subsequent steps and rests, overlapping other sample voices.
+- [ ] 5ms FADE notes end smoothly when a subsequent step arrives, including a rest.
+- [ ] Two tracks with different modes behave differently within the same phrase.
+- [ ] Samples that finish naturally before next step remain silent as expected.
+- [ ] WAV buttons show F or L for the configured mode; circular preview updates.
+- [ ] Live project save/reload preserves per-slot modes.
+- [ ] v0.6 projects without the new attribute load into FULL LENGTH mode.
+- [ ] Transport stop clears active voices and no stuck audio remains.
+- [ ] Playback remains stable with 32 simultaneous voices; oldest voice is stolen at cap.
 
-## Known shortcomings
-
-- Hard voice cap 32; oldest-voice stealing is abrupt.
-- 16-ring circles are dense at 1460×1150, verify DPI and usability.
-- UI orbit is a predictive step visualization, not a precise oscilloscope of all active voices.
-- Shared_ptr ownership and synchronous disk loads still need a real-time-safe refactor.
-- No MIDI-note-triggered instruments yet; voices are sequencer-generated.
+Known limitations: 32-voice steal is abrupt, peak sums can clip, original audio remains external, disk loading is synchronous, and pointer reclamation is not hard realtime safe.
