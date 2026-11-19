@@ -1,66 +1,55 @@
 # Phraser
 
-Windows x64 VST3 generative sample instrument for Ableton Live 12 (JUCE 8.0.8, C++17).
+Windows x64 VST3 phrase sampler for Ableton Live 12, written with C++17 and JUCE 8.0.8.
 
-## Version v0.7 (experimental)
+## v0.8 experimental: pitch-independent sample tempo sync
 
-Branch: `feature/v07-waveform-edit-tempo`. Based on v0.6.1. Do not overwrite the current working VST3 until Windows CI and Live tests succeed.
+**Branch**: `feature/v08-independent-pitch-stretch`, based on the v0.7.1 WAV-import crash hotfix. **The working installed version remains untouched**. Windows CI compilation and Live 12 audio-quality tests are required.
 
-### Direct waveform editing
+### What changed
 
-The previous `SAMPLE nn / RANDOM WINDOWS` inspector panel has been removed. All 16 waveform lanes are editable in-place:
+- **Per-WAV TUNE** field directly to the right of each sample's editable BPM. Enter **-12 to +12 semitones**, with `0` for original pitch.
+- **SYNC** changes sample duration to match `Live BPM / detected or manually-entered sample BPM` **without multiplying the audio read rate by that ratio**. Source pitch is held by a two-grain overlap-add resynthesis engine. A Live tempo change during playback updates the voice's timeline advancement but does not alter the voice's grain pitch read rate.
+- The global `PITCH` knob and phrase `PITCH SPREAD` remain in place. Actual pitch = global pitch + per-WAV TUNE + step pitch, limited to ±24 semitones.
+- For FREE, the timeline advances at the sample's original rate; TUNE alters pitch without intentionally shortening the programmed slice's duration.
+- 32 independent voices, 16 WAV waveform lanes, per-sample FULL/5ms and SYNC/FREE switches, direct waveform range edits, 64-step phrase grid, circular overlap view and Keep A/B are preserved.
+- Per-sample tuning is saved in the Live project (`SampleSlot.pitchSemitones`). Old sessions default to 0 semitones. The generated phrase and previous sample path references remain compatible.
 
-- **Click+drag across a waveform:** set that sample's **START FROM** and **START TO** as a normalized position interval. Green tinted area and green endpoint lines show the selected interval.
-- **Shift+drag across the same waveform:** set **LENGTH MIN** and **LENGTH MAX** as normalized fractions of that WAV's total duration. A narrow ochre band beneath the waveform shows these bounds.
-- These ranges are used when pressing **GENERATE**. Each generated slice chooses its own random start and duration from the associated sample's ranges. The global SIZE control still scales duration.
-- Single clicking creates a zero-width start range (fixed start position) or a minimal duration range; drag for randomness.
-- Clicking the sample filename opens the WAV picker. Each row's buttons sit immediately to the right of the sample name.
+### Implementation
 
-### Per-sample playback mode and tempo
+The v0.7 SYNC mode performed naive playback-rate resampling, which transposed the sample as Live BPM changed. v0.8 separates (a) the **source timeline** at normal or tempo-matched speed from (b) **grain-local playback** at the selected musical pitch. It crossfades two short, overlapping grains (nominal 60 ms each with 30 ms hop) using smoothstep weights. The voice's fixed-size state requires no new large buffers or allocations in its per-sample render loop.
 
-Each WAV slot offers the following controls on its row:
+This is an **initial, lightweight time-domain overlap-add (OLA) implementation**, not a professional formant-preserving WSOLA/phase-vocoder engine. It can produce audible phasing, graininess, transient smearing or modulation at strong tempo/pitch ratios, especially on complex or sustained material. Tempo estimation can still be inaccurate and half/double-time ambiguous; correct each WAV's editable BPM manually. A more advanced transient-aware stretching engine remains a future quality milestone.
 
-- **FULL / 5ms**: play each slice until its programmed end (FULL), or begin a 5ms release on the next sequencer step (5ms).
-- **SYNC / FREE**: tempo-synchronized playback speed vs unmodified sample playback speed.
-- **BPM**: automatic BPM estimate from WAV onset spacing, shown in an editable text field. Click to override with any value **40–240 BPM**, or enter `0` to return to auto-detection. A `?` means no reliable BPM estimate was possible; SYNC then behaves like FREE until the user enters a manual BPM.
+### Controls
 
-**Important:** SYNC changes the playback rate by `Live BPM / Sample BPM`. This changes pitch *as well as speed*, because this version uses resampling rather than independent time-stretching or key correction. The BPM detector is an approximate onset-interval algorithm; rhythmic subdivisions can cause half/double-time ambiguities. Correct the BPM manually where needed. Pitch and pitch spread controls are retained.
+Each sample lane: `WAV filename | FULL/5ms | SYNC/FREE | BPM | TUNE | waveform`.
 
-The 16 WAV paths, per-sample playback modes, SYNC/FREE choices, BPM overrides, waveform editing ranges, 64-step phrase and Keep A/B memories are persisted in Live project state. Old projects default to FREE and automatic BPM.
-
-### Smaller GUI
-
-The native JUCE panel now measures **1280×850 pixels** (down from 1460×1150). It keeps sixteen visible waveform lanes, the four-row sequence grid, twelve engine knobs, and a sixteen-ring overlap visualization.
-
-### Previous features retained
-
-- 16 WAV slots with sample peak waveform data
-- Up to 32 independent overlapping voices
-- 1–4 bars and 8 or 16 steps per bar, 8–64 total steps
-- Transient-aware slice generation, Density, Breaks, Variation, Pitch, Gain, Fade, Swing
-- Keep A/B memory, note-capable VST3 bus for Live (automatic transport-based sequencing)
+- **BPM**: type 40–240 or `0` for automatic estimate; `?` indicates unknown BPM.
+- **TUNE**: type integer -12..+12. Tune is sampled when a voice triggers; already playing voices keep their initial tuning.
+- **SYNC**: use Live BPM for the sample's timeline while preserving the chosen pitch.
+- **FREE**: do not tempo-match the sample, keeping its native sample timing.
+- **FULL/5ms**: sustain the chosen slice or release the slot's voices at the next sequencer step.
+- Waveform dragging sets start window. Shift+drag sets duration window. GENERATE uses those ranges for future slice events.
 
 ## Windows build
 
 ```powershell
 cd C:\Users\picopicoDragon\Documents\Phraser
 git fetch origin
-git switch -c feature/v07-waveform-edit-tempo --track origin/feature/v07-waveform-edit-tempo
-cmake -S . -B build-v07 -G "Visual Studio 18 2026" -A x64
-cmake --build build-v07 --config Release --target Phraser_VST3
+git switch -c feature/v08-independent-pitch-stretch --track origin/feature/v08-independent-pitch-stretch
+cmake -S . -B build-v08 -G "Visual Studio 18 2026" -A x64
+cmake --build build-v08 --config Release --target Phraser_VST3
 ```
 
-The entire VST3 folder will be in `build-v07/Phraser_artefacts/Release/VST3/Phraser.vst3`. Shut down Ableton, back up the installed bundle and copy the entire folder to `C:\Program Files\Common Files\VST3\Phraser.vst3`, then rescan plugins.
+Output bundle directory: `build-v08/Phraser_artefacts/Release/VST3/Phraser.vst3`. Exit Live and back up the prior installed VST3 before updating `C:\Program Files\Common Files\VST3\Phraser.vst3`.
 
 ## Limitations
 
-- **Not yet Live-validated:** this branch must be checked in Ableton Live 12 on PC1 before release.
-- Tempo estimator is a heuristic (not studio-grade beat tracking) and can be ambiguous on non-percussive sources.
-- Synchronization alters pitch together with playback speed.
-- Source WAV files remain external absolute paths, not embedded in Live project.
-- WAV reading and host state restoration are synchronous; sample ownership uses shared_ptr and is not guaranteed fully hard-real-time safe.
-- There is a 32-voice hard cap, with oldest-voice stealing. Simultaneous loud sounds can clip.
-- Each waveform lane's narrow duration band displays the configured fraction of the original WAV duration, not a rendered audio preview.
-- Still based on 4/4 meter and fixed UI sizing.
+- WAV import remains synchronous, and sample ownership uses atomic shared_ptr; hard-realtime safety is not guaranteed.
+- A total of 32 voices are supported, oldest voice stolen abruptly if exceeded; sums can clip.
+- Granular OLA does not guarantee identical sound to source at extreme ratios; verify with ears before production use.
+- Files are referenced by absolute paths, not embedded with the project.
+- VST3 requires Ableton Live 12 / Windows; built on Visual Studio 2026 on PC1 or the GitHub Windows CI runner.
 
-See `docs/DEVELOPMENT.md` for validation tasks.
+Detailed regression plan: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
