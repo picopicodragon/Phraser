@@ -91,8 +91,8 @@ PhraserAudioProcessorEditor::PhraserAudioProcessorEditor(PhraserAudioProcessor& 
     {
         auto& keep = keepButtons[static_cast<size_t>(i)];
         auto& recall = recallButtons[static_cast<size_t>(i)];
-        keep.setButtonText("SAVE " + juce::String::charToString(static_cast<juce::juce_wchar>('A' + i)));
-        recall.setButtonText("RECALL " + juce::String::charToString(static_cast<juce::juce_wchar>('A' + i)));
+        keep.setButtonText("SAVE " + juce::String(i == 0 ? "A" : "B"));
+        recall.setButtonText("RECALL " + juce::String(i == 0 ? "A" : "B"));
         keep.setColour(juce::TextButton::buttonColourId, juce::Colour { 0xff354b59 });
         recall.setColour(juce::TextButton::buttonColourId, juce::Colour { 0xff243b44 });
         keep.onClick = [this, i]
@@ -204,10 +204,8 @@ void PhraserAudioProcessorEditor::paintOrbit(juce::Graphics& g)
             const auto& event = snapshot.events[static_cast<size_t>(step)];
             const bool selected = event.enabled && event.slot == layer;
             const bool playing = cachedStep == step;
-            const float a0 = -juce::MathConstants<float>::halfPi
-                           + static_cast<float>(step) * juce::MathConstants<float>::twoPi / 16.0f + 0.026f;
-            const float a1 = -juce::MathConstants<float>::halfPi
-                           + static_cast<float>(step + 1) * juce::MathConstants<float>::twoPi / 16.0f - 0.026f;
+            const float a0 = static_cast<float>(step) * juce::MathConstants<float>::twoPi / 16.0f + 0.026f;
+            const float a1 = static_cast<float>(step + 1) * juce::MathConstants<float>::twoPi / 16.0f - 0.026f;
             juce::Path arc;
             arc.addCentredArc(cx, cy, radius, radius, 0.0f, a0, a1, true);
             auto colour = selected ? palette[static_cast<size_t>(layer)] : juce::Colour { 0xff35404c };
@@ -221,8 +219,8 @@ void PhraserAudioProcessorEditor::paintOrbit(juce::Graphics& g)
                 const auto mid = (a0 + a1) * 0.5f;
                 const float d = radius + 12.0f;
                 g.setColour(juce::Colour { 0xffffe4a0 });
-                g.fillEllipse(cx + std::cos(mid) * d - 2.0f,
-                              cy + std::sin(mid) * d - 2.0f, 4.0f, 4.0f);
+                g.fillEllipse(cx + std::sin(mid) * d - 2.0f,
+                              cy - std::cos(mid) * d - 2.0f, 4.0f, 4.0f);
             }
         }
     }
