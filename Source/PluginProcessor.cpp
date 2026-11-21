@@ -69,7 +69,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout PhraserAudioProcessor::makeP
     add("bars", "Bars", 1.0f, 4.0f, 1.0f, 1.0f);
     // Preserved for old project-state compatibility. v0.9 always uses 16 steps/bar.
     add("division", "Steps per Bar (Legacy)", 8.0f, 16.0f, 16.0f, 8.0f);
-    add("targetKey", "Reference Key (C=0)", 0.0f, 11.0f, 0.0f, 1.0f);
+    result.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID { "targetKey", 1 }, "Reference Key",
+        juce::StringArray { "C", "C#", "D", "D#", "E", "F",
+                            "F#", "G", "G#", "A", "A#", "B" }, 0));
     return { result.begin(), result.end() };
 }
 
