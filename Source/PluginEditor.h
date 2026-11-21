@@ -75,6 +75,7 @@ private:
     int lastStep = -2;
     int lastColumns = -1;
     int lastTracks = -1;
+    int lastReferenceKey = -1;
 
     void timerCallback() override;
     void updateSlotControls();
