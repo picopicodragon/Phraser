@@ -660,14 +660,9 @@ void PhraserAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
         for (auto& voice : voices)
         {
             if (!voice.source) continue;
-            if (isSlotMuted(voice.slot) || isTrackMuted(voice.track))
-            {
-                // Continue internal time during mute, but output silence.
-                // A muted sample never starts a new voice.
-                voice.position += voice.increment;
-                voice.rendered += 1.0;
-                continue;
-            }
+            const bool voiceMuted = isSlotMuted(voice.slot) || isTrackMuted(voice.track);
+            // Keep grain read-heads advancing while muted, so restoring
+            // the mute never restarts a stale crossfade phase.
             const auto& audio = voice.source->audio;
             if (voice.position >= voice.end
                 || voice.position >= audio.getNumSamples() - 1)
@@ -724,8 +719,8 @@ void PhraserAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
             const float olderWeight = 1.0f - freshWeight;
             const double highest = juce::jmin(
                 voice.end - 0.0001, static_cast<double>(audio.getNumSamples() - 1));
-            const float amp = static_cast<float>(envelope) * gain
-                * getSlotVolume(voice.slot);
+            const float amp = voiceMuted ? 0.0f
+                : static_cast<float>(envelope) * gain * getSlotVolume(voice.slot);
 
             for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
             {
@@ -753,7 +748,10 @@ void PhraserAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
     {
         const auto index = static_cast<size_t>(i);
         const float previous = slotLevels[index].load(std::memory_order_relaxed);
-        slotLevels[index].store(juce::jmax(meteredPeaks[index], previous * 0.82f),
+        const float decay = static_cast<float>(
+            std::exp(-static_cast<double>(buffer.getNumSamples())
+                / (engineSampleRate * 0.18)));
+        slotLevels[index].store(juce::jmax(meteredPeaks[index], previous * decay),
                                 std::memory_order_relaxed);
     }
     publishVoiceMeters();
