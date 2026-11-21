@@ -498,12 +498,14 @@ void PhraserAudioProcessor::startStep(
         automatic = (getBasePitchClass() - sourceKey + 12) % 12;
         if (automatic > 6) automatic -= 12;
     }
+    const double baseSemitones = static_cast<double>(event.semitones)
+        + static_cast<double>(globalPitch)
+        + static_cast<double>(voice.pitchSemitones);
     const double semitones = juce::jlimit(-24.0, 24.0,
-        static_cast<double>(event.semitones) + static_cast<double>(globalPitch)
-        + static_cast<double>(voice.pitchSemitones) + automatic);
+        baseSemitones + automatic);
     // Source timeline moves only with musical tempo. Pitch changes the
     // internal grain playback rate, not the duration of a slice.
-    voice.initialPitchSemitones = semitones;
+    voice.initialPitchSemitones = baseSemitones;
     voice.appliedRootShift = automatic;
     voice.baseIncrement = voice.source->sampleRate / engineSampleRate;
     voice.pitchIncrement = voice.baseIncrement * std::pow(2.0, semitones / 12.0);
@@ -597,8 +599,11 @@ void PhraserAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
         if (desired > 6) desired -= 12;
         if (desired != voice.appliedRootShift)
         {
-            voice.pitchIncrement *= std::pow(
-                2.0, static_cast<double>(desired - voice.appliedRootShift) / 12.0);
+            const double oldPitch = juce::jlimit(-24.0, 24.0,
+                voice.initialPitchSemitones + voice.appliedRootShift);
+            const double newPitch = juce::jlimit(-24.0, 24.0,
+                voice.initialPitchSemitones + desired);
+            voice.pitchIncrement *= std::pow(2.0, (newPitch - oldPitch) / 12.0);
             voice.appliedRootShift = desired;
         }
     }
