@@ -3,6 +3,7 @@
 #include "TransientDetection.h"
 #include "TempoDetection.h"
 #include "GrainAlignment.h"
+#include "PitchClassDetection.h"
 #include <algorithm>
 #include <cmath>
 
@@ -66,7 +67,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout PhraserAudioProcessor::makeP
     add("pitch", "Pitch", -12.0f, 12.0f, 0.0f, 1.0f);
     add("pitchspread", "Pitch Spread", 0.0f, 12.0f, 0.0f, 1.0f);
     add("bars", "Bars", 1.0f, 4.0f, 1.0f, 1.0f);
-    add("division", "Steps per Bar", 8.0f, 16.0f, 16.0f, 8.0f);
+    // Preserved for old project-state compatibility. v0.9 always uses 16 steps/bar.
+    add("division", "Steps per Bar (Legacy)", 8.0f, 16.0f, 16.0f, 8.0f);
+    add("targetKey", "Reference Key (C=0)", 0.0f, 11.0f, 0.0f, 1.0f);
     return { result.begin(), result.end() };
 }
 
@@ -129,6 +132,10 @@ bool PhraserAudioProcessor::loadWavFile(int slot, const juce::File& file)
     loaded->transients = phraser::detectTransients(loaded->audio, loaded->sampleRate);
     loaded->detectedBpm = phraser::estimateSampleBpm(
         loaded->transients, loaded->audio.getNumSamples(), loaded->sampleRate);
+    const auto estimatedPitch = phraser::estimatePitchClass(
+        loaded->audio, loaded->sampleRate);
+    loaded->detectedPitchClass = estimatedPitch.pitchClass;
+    loaded->pitchConfidence = estimatedPitch.confidence;
 
     const int frames = loaded->audio.getNumSamples();
     for (int cell = 0; cell < waveformPoints; ++cell)
@@ -172,6 +179,27 @@ double PhraserAudioProcessor::getSampleTempo(int slot) const
     return sample ? sample->detectedBpm : 0.0;
 }
 
+int PhraserAudioProcessor::getSamplePitchClass(int slot) const
+{
+    const auto sample = getSampleSnapshot(slot);
+    return sample ? sample->detectedPitchClass : -1;
+}
+
+int PhraserAudioProcessor::getBasePitchClass() const
+{
+    return juce::jlimit(0, 11, static_cast<int>(
+        std::round(parameters.getRawParameterValue("targetKey")->load())));
+}
+
+int PhraserAudioProcessor::getAutomaticTranspose(int slot) const
+{
+    const int detected = getSamplePitchClass(slot);
+    if (detected < 0) return 0;
+    int shift = (getBasePitchClass() - detected + 12) % 12;
+    if (shift > 6) shift -= 12;
+    return shift;
+}
+
 int PhraserAudioProcessor::getTransientCount(int slot) const
 {
     auto sample = getSampleSnapshot(slot);
@@ -184,16 +212,24 @@ float PhraserAudioProcessor::getPlayPosition(int slot) const
     return playPositions[static_cast<size_t>(slot)].load(std::memory_order_relaxed);
 }
 
-int PhraserAudioProcessor::getStepsPerBar() const
-{
-    return parameters.getRawParameterValue("division")->load() < 12.0f ? 8 : 16;
-}
+int PhraserAudioProcessor::getStepsPerBar() const { return 16; }
 
 int PhraserAudioProcessor::getActiveSteps() const
 {
-    const auto bars = juce::jlimit(1, 4,
+    const int bars = juce::jlimit(1, 4,
         static_cast<int>(std::round(parameters.getRawParameterValue("bars")->load())));
-    return bars * getStepsPerBar();
+    return 16 * bars;
+}
+
+int PhraserAudioProcessor::getTrackCount() const
+{
+    const int bars = getActiveSteps() / 16;
+    return bars == 1 ? 4 : (bars == 2 ? 2 : 1);
+}
+
+int PhraserAudioProcessor::getCellCount() const
+{
+    return getActiveSteps() * getTrackCount();
 }
 
 PhraserSlotSettings PhraserAudioProcessor::getSlotSettings(int slot) const
@@ -238,8 +274,9 @@ void PhraserAudioProcessor::randomizePattern()
     const auto snap = parameters.getRawParameterValue("transient")->load();
     const int pitchSpread = juce::jlimit(0, 12,
         static_cast<int>(std::round(parameters.getRawParameterValue("pitchspread")->load())));
-    const int active = getActiveSteps();
+    const int active = getCellCount();
     const int subdivision = getStepsPerBar();
+    const int phraseSteps = getActiveSteps();
 
     std::array<int, numSlots> loaded {};
     int count = 0;
@@ -254,7 +291,7 @@ void PhraserAudioProcessor::randomizePattern()
     }
 
     const int motif = variation < 0.33f ? subdivision / 2
-                    : variation < 0.67f ? subdivision : active;
+                    : variation < 0.67f ? subdivision : phraseSteps;
     for (int i = 0; i < numSteps; ++i)
     {
         auto& e = next->events[static_cast<size_t>(i)];
@@ -269,7 +306,8 @@ void PhraserAudioProcessor::randomizePattern()
             continue;
         }
 
-        if (i >= motif && random.nextFloat() > variation)
+        const int withinTrack = i % phraseSteps;
+        if (withinTrack >= motif && random.nextFloat() > variation)
         {
             e = next->events[static_cast<size_t>(i - motif)];
             e.locked = false;
@@ -277,7 +315,7 @@ void PhraserAudioProcessor::randomizePattern()
         }
 
         e.enabled = random.nextFloat() < density
-            && !(i % subdivision >= subdivision / 2 && random.nextFloat() < breaks);
+            && !(withinTrack % subdivision >= subdivision / 2 && random.nextFloat() < breaks);
         e.slot = loaded[static_cast<size_t>(random.nextInt(count))];
 
         const auto& range = slotSettings[static_cast<size_t>(e.slot)];
@@ -307,7 +345,7 @@ void PhraserAudioProcessor::randomizePattern()
 
 void PhraserAudioProcessor::toggleStep(int index)
 {
-    if (!juce::isPositiveAndBelow(index, getActiveSteps())) return;
+    if (!juce::isPositiveAndBelow(index, getCellCount())) return;
     auto next = std::make_shared<PhraserPattern>(getPatternSnapshot());
     auto& e = next->events[static_cast<size_t>(index)];
     e.enabled = !e.enabled;
@@ -316,7 +354,7 @@ void PhraserAudioProcessor::toggleStep(int index)
 
 void PhraserAudioProcessor::toggleLock(int index)
 {
-    if (!juce::isPositiveAndBelow(index, getActiveSteps())) return;
+    if (!juce::isPositiveAndBelow(index, getCellCount())) return;
     auto next = std::make_shared<PhraserPattern>(getPatternSnapshot());
     auto& e = next->events[static_cast<size_t>(index)];
     e.locked = !e.locked;
@@ -325,13 +363,20 @@ void PhraserAudioProcessor::toggleLock(int index)
 
 void PhraserAudioProcessor::setStepSlot(int index, int slot)
 {
-    if (!juce::isPositiveAndBelow(index, getActiveSteps())
+    if (!juce::isPositiveAndBelow(index, getCellCount())
         || !juce::isPositiveAndBelow(slot, numSlots)) return;
     auto next = std::make_shared<PhraserPattern>(getPatternSnapshot());
     auto& e = next->events[static_cast<size_t>(index)];
     e.slot = slot;
     e.enabled = true;
     std::atomic_store(&pattern, std::shared_ptr<const PhraserPattern>(next));
+}
+
+void PhraserAudioProcessor::setStepAt(int track, int column, int slot)
+{
+    if (!juce::isPositiveAndBelow(track, getTrackCount())
+        || !juce::isPositiveAndBelow(column, getActiveSteps())) return;
+    setStepSlot(getCellIndex(track, column, getActiveSteps()), slot);
 }
 
 void PhraserAudioProcessor::saveKeep(int index)
@@ -389,9 +434,17 @@ void PhraserAudioProcessor::startStep(
     voice.end = juce::jmin(last,
         voice.position + static_cast<double>(event.length) * (last + 1.0));
     const double globalPitch = parameters.getRawParameterValue("pitch")->load();
+    // Tune tonal samples to the chosen reference note. Percussive/ambiguous
+    // samples have detectedPitchClass=-1 and are left unchanged.
+    int automatic = 0;
+    if (voice.source->detectedPitchClass >= 0)
+    {
+        automatic = (getBasePitchClass() - voice.source->detectedPitchClass + 12) % 12;
+        if (automatic > 6) automatic -= 12;
+    }
     const double semitones = juce::jlimit(-24.0, 24.0,
         static_cast<double>(event.semitones) + static_cast<double>(globalPitch)
-        + static_cast<double>(voice.pitchSemitones));
+        + static_cast<double>(voice.pitchSemitones) + automatic);
     // Source timeline moves only with musical tempo. Pitch changes the
     // internal grain playback rate, not the duration of a slice.
     voice.baseIncrement = voice.source->sampleRate / engineSampleRate;
@@ -501,8 +554,8 @@ void PhraserAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
         if (step != previousStep)
         {
             previousStep = step;
-            const int index = static_cast<int>((step % active + active) % active);
-            currentStep.store(index, std::memory_order_relaxed);
+            const int column = static_cast<int>((step % active + active) % active);
+            currentStep.store(column, std::memory_order_relaxed);
             // Release only voices whose *sample slot* is configured for NEXT STEP 5ms.
             // FULL LENGTH voices remain independent and can overlap for their entire slice.
             // This happens on rests too, as the phrase advances to the next step.
@@ -512,7 +565,15 @@ void PhraserAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
                     voice.releaseStart = voice.rendered;
                     voice.releaseFrames = crossfadeFrames;
                 }
-            startStep(localPattern->events[static_cast<size_t>(index)], available, crossfadeFrames);
+            // Each lane is a parallel track, with its own event at this
+            // absolute step. All tracks can trigger at the same instant.
+            const int tracks = getTrackCount();
+            for (int track = 0; track < tracks; ++track)
+            {
+                const int cell = getCellIndex(track, column, active);
+                startStep(localPattern->events[static_cast<size_t>(cell)],
+                          available, crossfadeFrames);
+            }
         }
 
         for (auto& voice : voices)
