@@ -504,6 +504,7 @@ void PhraserAudioProcessor::startStep(
     // Source timeline moves only with musical tempo. Pitch changes the
     // internal grain playback rate, not the duration of a slice.
     voice.initialPitchSemitones = semitones;
+    voice.appliedRootShift = automatic;
     voice.baseIncrement = voice.source->sampleRate / engineSampleRate;
     voice.pitchIncrement = voice.baseIncrement * std::pow(2.0, semitones / 12.0);
     voice.increment = voice.baseIncrement;
@@ -565,6 +566,7 @@ void PhraserAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
         currentStep.store(-1, std::memory_order_relaxed);
         for (auto& voice : voices) voice = {};
         publishVoiceMeters();
+        for (auto& meter : slotLevels) meter.store(0.0f, std::memory_order_relaxed);
         return;
     }
     const auto position = host->getPosition();
@@ -574,6 +576,9 @@ void PhraserAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
         currentStep.store(-1, std::memory_order_relaxed);
         for (auto& voice : voices) voice = {};
         for (auto& indicator : playPositions) indicator.store(-1.0f, std::memory_order_relaxed);
+        for (auto& meter : slotLevels) meter.store(0.0f, std::memory_order_relaxed);
+        activeVoiceCount.store(0, std::memory_order_relaxed);
+        for (auto& count : slotVoiceCounts) count.store(0, std::memory_order_relaxed);
         return;
     }
 
@@ -581,6 +586,22 @@ void PhraserAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
     const double bpm = position->getBpm().orFallback(120.0);
     if (!ppq || bpm <= 0.0) return;
     lastBpm.store(bpm, std::memory_order_relaxed);
+    // Preference-key changes affect voices that are already sounding, not
+    // just future triggers. Retune grain readers without changing timeline.
+    for (auto& voice : voices)
+    {
+        if (!voice.source || !juce::isPositiveAndBelow(voice.slot, numSlots)) continue;
+        const int sourceKey = getEffectiveSourceKey(voice.slot);
+        int desired = sourceKey < 0 ? 0
+            : (getBasePitchClass() - sourceKey + 12) % 12;
+        if (desired > 6) desired -= 12;
+        if (desired != voice.appliedRootShift)
+        {
+            voice.pitchIncrement *= std::pow(
+                2.0, static_cast<double>(desired - voice.appliedRootShift) / 12.0);
+            voice.appliedRootShift = desired;
+        }
+    }
     // Recalculate play rate for already-sounding tempo-synchronized voices.
     // Free-running voices retain their original pitch/speed.
     for (auto& voice : voices)
