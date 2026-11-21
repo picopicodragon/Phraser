@@ -71,6 +71,17 @@ PhraserAudioProcessorEditor::PhraserAudioProcessorEditor(PhraserAudioProcessor& 
     theme = std::make_unique<CompactLookAndFeel>();
     setLookAndFeel(theme.get());
     setSize(1280, 850);
+    const juce::StringArray noteNames {
+        "C", "C#", "D", "D#", "E", "F",
+        "F#", "G", "G#", "A", "A#", "B"
+    };
+    for (int k = 0; k < noteNames.size(); ++k)
+        referenceKeyBox.addItem(noteNames[k], k + 1);
+    referenceKeyBox.setTooltip("Reference pitch class. Tonal WAVs tune to this note automatically.");
+    addAndMakeVisible(referenceKeyBox);
+    referenceKeyAttachment =
+        std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+            processor.parameters, "targetKey", referenceKeyBox);
 
     addAndMakeVisible(generateButton);
     generateButton.setColour(juce::TextButton::buttonColourId, juce::Colour { 0xffbfdfca });
@@ -84,8 +95,11 @@ PhraserAudioProcessorEditor::PhraserAudioProcessorEditor(PhraserAudioProcessor& 
     for (int i = 0; i < PhraserAudioProcessor::numSlots; ++i)
     {
         auto& load = slotButtons[static_cast<size_t>(i)];
+        load.sampleSlot = i;
+        load.setTooltip("Click to load WAV; drag sample name onto any phrase cell; accept Explorer WAV drops");
         load.onClick = [this, i]
         {
+            if (slotButtons[static_cast<size_t>(i)].dragStarted) return;
             selectedSlot = i;
             updateSlotControls();
             loadSlot(i);
@@ -176,11 +190,11 @@ PhraserAudioProcessorEditor::PhraserAudioProcessorEditor(PhraserAudioProcessor& 
 
     constexpr std::array<const char*, controlCount> ids {
         "density", "slice", "breaks", "swing", "gain", "fade",
-        "transient", "variation", "pitch", "pitchspread", "bars", "division"
+        "transient", "variation", "pitch", "pitchspread", "bars"
     };
     constexpr std::array<const char*, controlCount> names {
         "DENSITY", "SIZE", "BREAKS", "SWING", "OUTPUT", "FADE",
-        "SNAP", "VARIATION", "PITCH", "SPREAD", "BARS", "STEPS/BAR"
+        "SNAP", "VARIATION", "PITCH", "SPREAD", "BARS"
     };
     for (int i = 0; i < controlCount; ++i)
     {
@@ -197,7 +211,7 @@ PhraserAudioProcessorEditor::PhraserAudioProcessorEditor(PhraserAudioProcessor& 
     }
 
     status.setColour(juce::Label::textColourId, muted);
-    status.setText("Drag wave = start range; SHIFT+drag = length. BPM: 0 = auto. PITCH: per-WAV semitones.",
+    status.setText("WAV -> SAMPLE: drop file. SAMPLE -> CELL: drag name. RIGHT-CLICK CELL: choose WAV. KEY: root note.",
                    juce::dontSendNotification);
     addAndMakeVisible(status);
     updateSlotControls();
@@ -216,8 +230,20 @@ void PhraserAudioProcessorEditor::updateSlotControls()
     {
         auto setting = processor.getSlotSettings(i);
         auto& load = slotButtons[static_cast<size_t>(i)];
-        load.setButtonText(juce::String(i + 1).paddedLeft('0', 2) + "  "
-                           + processor.getSlotName(i).substring(0, 11));
+        const auto noteIndex = processor.getSamplePitchClass(i);
+        static const char* notes[] = {
+            "C", "C#", "D", "D#", "E", "F",
+            "F#", "G", "G#", "A", "A#", "B"
+        };
+        const auto suffix = noteIndex >= 0
+            ? " [" + juce::String(notes[noteIndex]) + "]" : "";
+        load.setButtonText(juce::String(i + 1).paddedLeft('0', 2) + " "
+                           + processor.getSlotName(i).substring(0, 7) + suffix);
+        load.setTooltip("Detected pitch class: "
+            + (noteIndex >= 0 ? juce::String(notes[noteIndex])
+                + " / automatic correction " + juce::String(processor.getAutomaticTranspose(i))
+                + " semitones" : juce::String("unknown, no automatic tuning"))
+            + ". Drag onto step cell to assign. Click to load, or drop WAV here.");
         load.setColour(juce::TextButton::buttonColourId,
                        i == selectedSlot ? juce::Colour { 0xffc3dfd0 } : white);
         auto& mode = modeButtons[static_cast<size_t>(i)];
@@ -255,24 +281,27 @@ void PhraserAudioProcessorEditor::loadSlot(int index)
             if (safe == nullptr) return;
             const auto file = fc.getResult();
             if (file == juce::File {}) return;
-            const bool loaded = safe->processor.loadWavFile(index, file);
-            safe->updateSlotControls();
-            safe->repaint();
-            safe->status.setText(loaded
-                ? "Loaded " + file.getFileName() + ", BPM " +
-                  juce::String(safe->processor.getSampleTempo(index), 0)
-                : "WAV load failed",
-                juce::dontSendNotification);
+            safe->importSample(index, file);
         });
 }
 
 void PhraserAudioProcessorEditor::timerCallback()
 {
     const int active = processor.getCurrentStep();
-    if (active != lastStep)
+    const int columns = processor.getActiveSteps();
+    const int tracks = processor.getTrackCount();
+    const int key = processor.getBasePitchClass();
+    if (key != lastReferenceKey)
+    {
+        lastReferenceKey = key;
+        updateSlotControls();
+    }
+    if (active != lastStep || columns != lastColumns || tracks != lastTracks)
     {
         lastStep = active;
-        repaint(18, 637, 1242, 155);
+        lastColumns = columns;
+        lastTracks = tracks;
+        repaint(18, 613, 1242, 179);
     }
     repaint(360, 98, 501, 482);
     repaint(880, 447, 378, 346);
@@ -340,48 +369,68 @@ void PhraserAudioProcessorEditor::paintLanes(juce::Graphics& g)
 void PhraserAudioProcessorEditor::paintSequence(juce::Graphics& g)
 {
     const auto phrase = processor.getPatternSnapshot();
-    const int active = processor.getActiveSteps();
-    const int division = processor.getStepsPerBar();
+    const int columns = processor.getActiveSteps(); // 16 / 32 / 48 / 64
+    const int tracks = processor.getTrackCount();   // 4 / 2 / 1 / 1
     const int current = processor.getCurrentStep();
     g.setColour(slate);
     g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
-    g.drawText("PHRASE / " + juce::String(active) + " STEPS / "
-               + juce::String(active / division) + " BARS", 24, 625, 360, 22,
-               juce::Justification::centredLeft);
+    g.drawText(juce::String(columns / 16) + " BARS / "
+               + juce::String(tracks) + " TRACKS / "
+               + juce::String(columns) + " STEPS EACH",
+               24, 625, 440, 22, juce::Justification::centredLeft);
     g.setColour(muted);
-    g.setFont(juce::FontOptions(10.0f));
-    g.drawText("CLICK mute   SHIFT+CLICK assign selected WAV   RIGHT-CLICK lock",
-               377, 625, 475, 22, juce::Justification::centredRight);
+    g.setFont(juce::FontOptions(9.5f));
+    g.drawText("DRAG SAMPLE TO CELL  |  RIGHT-CLICK: SELECT SAMPLE",
+               465, 625, 389, 22, juce::Justification::centredRight);
 
-    for (int i = 0; i < PhraserAudioProcessor::numSteps; ++i)
+    constexpr float left = 26.0f;
+    constexpr float width = 828.0f;
+    constexpr float top = 652.0f;
+    constexpr float height = 116.0f;
+    const float cellWidth = width / columns;
+    const float rowHeight = height / tracks;
+    for (int track = 0; track < tracks; ++track)
     {
-        const int row = i / 16;
-        const int col = i % 16;
-        const float x = 24.0f + col * 52.1f;
-        const float y = 654.0f + row * 29.0f;
-        const auto& e = phrase.events[static_cast<size_t>(i)];
-        const bool on = i < active && e.enabled;
-        const bool now = i == current && i < active;
-        g.setColour(i >= active ? juce::Colour { 0xffe7ece7 }
-                    : on ? sampleColour(juce::jlimit(0, 15, e.slot))
-                    : juce::Colour { 0xffd3dfd6 });
-        g.fillRoundedRectangle(x, y, 48.0f, 23.0f, 1.5f);
-        if (now)
+        const float rowY = top + track * rowHeight;
+        for (int step = 0; step < columns; ++step)
         {
-            g.setColour(green);
-            g.drawRoundedRectangle(x, y, 48.0f, 23.0f, 1.5f, 2.0f);
+            const int index = PhraserAudioProcessor::getCellIndex(track, step, columns);
+            const auto& event = phrase.events[static_cast<size_t>(index)];
+            const float x = left + step * cellWidth;
+            const float y = rowY + 4.0f;
+            const float w = juce::jmax(2.0f, cellWidth - 1.7f);
+            const float h = juce::jmax(16.0f, rowHeight - 7.0f);
+            g.setColour(event.enabled
+                ? sampleColour(juce::jlimit(0, 15, event.slot))
+                : juce::Colour { 0xffd3dfd6 });
+            g.fillRoundedRectangle(x, y, w, h, 1.2f);
+            if (step == current)
+            {
+                g.setColour(green);
+                g.drawRoundedRectangle(x, y, w, h, 1.2f, 1.6f);
+            }
+            if (event.locked)
+            {
+                g.setColour(orange);
+                g.fillRect(x + juce::jmax(0.0f, w - 3.0f), y + 1.0f, 2.0f, 4.0f);
+            }
+            if (step % 16 == 0)
+            {
+                g.setColour(slate.withAlpha(0.55f));
+                g.drawVerticalLine(static_cast<int>(x), rowY, rowY + rowHeight);
+            }
+            if (cellWidth >= 26.0f)
+            {
+                g.setColour(event.enabled ? juce::Colours::white : muted);
+                g.setFont(juce::FontOptions(9.0f, juce::Font::bold));
+                const auto text = event.enabled
+                    ? juce::String(event.slot + 1)
+                    : juce::String(step + 1);
+                g.drawText(text, static_cast<int>(x + 1),
+                           static_cast<int>(y), static_cast<int>(w - 1),
+                           static_cast<int>(h), juce::Justification::centred);
+            }
         }
-        if (i < active && e.locked)
-        {
-            g.setColour(orange);
-            g.fillRect(x + 43.0f, y + 2.0f, 3.0f, 3.0f);
-        }
-        g.setColour(on ? juce::Colours::white : muted);
-        g.setFont(juce::FontOptions(9.0f, juce::Font::bold));
-        g.drawText(juce::String(i + 1).paddedLeft('0', 2)
-                   + (on ? ":" + juce::String(e.slot + 1) : ""),
-                   static_cast<int>(x + 3.0f), static_cast<int>(y),
-                   42, 22, juce::Justification::centredLeft);
     }
 }
 
@@ -420,9 +469,11 @@ void PhraserAudioProcessorEditor::paintOverlapOrbit(juce::Graphics& g)
             const double sourceTempo = processor.getSampleTempo(slot);
             const double tempoRatio = settings.syncToHost && sourceTempo > 0.0
                 ? hostBpm / sourceTempo : 1.0;
+            for (int track = 0; track < processor.getTrackCount(); ++track)
             for (int i = 0; i < active; ++i)
             {
-                const auto& e = phrase.events[static_cast<size_t>(i)];
+                const int cell = PhraserAudioProcessor::getCellIndex(track, i, active);
+                const auto& e = phrase.events[static_cast<size_t>(cell)];
                 if (!e.enabled || e.slot != slot) continue;
                 const double seconds = e.length * source->audio.getNumSamples()
                     / source->sampleRate / tempoRatio;
@@ -475,9 +526,11 @@ void PhraserAudioProcessorEditor::paint(juce::Graphics& g)
     g.drawText("PHRASER", 23, 16, 182, 35, juce::Justification::centredLeft);
     g.setColour(muted);
     g.setFont(juce::FontOptions(11.0f));
-    g.drawText("PITCH-INDEPENDENT SYNC / v0.8", 203, 23, 285, 21,
+    g.drawText("REFERENCE KEY", 538, 25, 100, 19,
+               juce::Justification::centredRight);
+    g.drawText("KEY / MULTITRACK / v0.9", 203, 23, 265, 21,
                juce::Justification::centredLeft);
-    g.drawText("DRAG wave: START FROM / TO     SHIFT+DRAG: LENGTH MIN / MAX",
+    g.drawText("WAV on sample row: IMPORT   /   SAMPLE NAME to GRID: ASSIGN   /   WAVE DRAG: RANGE",
                23, 58, 850, 22, juce::Justification::centredLeft);
     g.setColour(rule);
     g.drawHorizontalLine(86, 20.0f, 1261.0f);
@@ -488,7 +541,7 @@ void PhraserAudioProcessorEditor::paint(juce::Graphics& g)
     g.drawText("CLOCK", 226, 88, 60, 15, juce::Justification::centredLeft);
     g.drawText("BPM", 293, 88, 55, 15, juce::Justification::centred);
     g.drawText("TUNE", 355, 88, 60, 15, juce::Justification::centred);
-    g.drawText("WAVEFORM / START (GREEN) / DURATION (OCHRE)",
+    g.drawText("WAVEFORM / START (GREEN) / LENGTH (OCHRE)",
                428, 88, 430, 15, juce::Justification::centredLeft);
 
     paintLanes(g);
@@ -507,7 +560,7 @@ void PhraserAudioProcessorEditor::paint(juce::Graphics& g)
 
     g.setColour(muted);
     g.setFont(juce::FontOptions(10.0f));
-    g.drawText("SYNC changes duration without changing pitch. TUNE = -12..+12 semitones; BPM = 0 for automatic.",
+    g.drawText("Tonal samples auto-tune to reference key. Untuned drums/ambiguous audio stay unchanged. 16 steps/bar.",
                22, 789, 843, 19, juce::Justification::centredLeft);
 }
 
@@ -535,6 +588,7 @@ void PhraserAudioProcessorEditor::resized()
         saveButtons[static_cast<size_t>(i)].setBounds(899 + i * 175, 422, 82, 23);
         recallButtons[static_cast<size_t>(i)].setBounds(987 + i * 175, 422, 81, 23);
     }
+    referenceKeyBox.setBounds(641, 20, 103, 27);
     status.setBounds(22, 814, 1238, 25);
 }
 
@@ -558,6 +612,116 @@ void PhraserAudioProcessorEditor::applyWaveDrag(const juce::MouseEvent& event)
     repaint(18, static_cast<int>(laneTop + dragSlot * lanePitch) - 1, 848, 30);
 }
 
+int PhraserAudioProcessorEditor::getCellAt(juce::Point<int> point) const
+{
+    constexpr float left = 26.0f, width = 828.0f;
+    constexpr float top = 652.0f, height = 116.0f;
+    if (point.x < left || point.x >= left + width
+        || point.y < top || point.y >= top + height)
+        return -1;
+    const int columns = processor.getActiveSteps();
+    const int rows = processor.getTrackCount();
+    const int row = juce::jlimit(0, rows - 1,
+        static_cast<int>((point.y - top) / (height / rows)));
+    const int column = juce::jlimit(0, columns - 1,
+        static_cast<int>((point.x - left) / (width / columns)));
+    return PhraserAudioProcessor::getCellIndex(row, column, columns);
+}
+
+void PhraserAudioProcessorEditor::importSample(int slot, const juce::File& file)
+{
+    if (!juce::isPositiveAndBelow(slot, PhraserAudioProcessor::numSlots)) return;
+    const bool ok = processor.loadWavFile(slot, file);
+    selectedSlot = slot;
+    updateSlotControls();
+    repaint();
+    if (!ok)
+    {
+        status.setText("Unable to import WAV (unsupported or exceeds size limit)",
+                       juce::dontSendNotification);
+        return;
+    }
+    const int pitchClass = processor.getSamplePitchClass(slot);
+    const juce::String suffix = pitchClass >= 0
+        ? ", root detected; auto-tuned " + juce::String(processor.getAutomaticTranspose(slot))
+              + " semitones"
+        : ", no confident root (no automatic tuning)";
+    status.setText("Loaded " + file.getFileName() + suffix, juce::dontSendNotification);
+}
+
+void PhraserAudioProcessorEditor::showCellAssignmentMenu(
+    int cell, juce::Point<int> screen)
+{
+    if (!juce::isPositiveAndBelow(cell, processor.getCellCount())) return;
+    juce::PopupMenu menu;
+    menu.addSectionHeader("ASSIGN SAMPLE TO STEP");
+    for (int slot = 0; slot < PhraserAudioProcessor::numSlots; ++slot)
+        menu.addItem(100 + slot, juce::String(slot + 1).paddedLeft('0', 2)
+            + "  " + processor.getSlotName(slot), true, false);
+    menu.addSeparator();
+    menu.addItem(201, "Toggle step");
+    menu.addItem(202, "Toggle LOCK");
+    const juce::Component::SafePointer<PhraserAudioProcessorEditor> safe(this);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea(
+        juce::Rectangle<int>(screen.x, screen.y, 1, 1)),
+        [safe, cell](int selection)
+        {
+            if (safe == nullptr) return;
+            if (selection >= 100 && selection < 116)
+                safe->processor.setStepSlot(cell, selection - 100);
+            else if (selection == 201) safe->processor.toggleStep(cell);
+            else if (selection == 202) safe->processor.toggleLock(cell);
+            safe->repaint(15, 613, 850, 177);
+        });
+}
+
+bool PhraserAudioProcessorEditor::isInterestedInDragSource(
+    const SourceDetails& details)
+{
+    return details.description.toString().startsWith("PhraserSample:");
+}
+
+void PhraserAudioProcessorEditor::itemDropped(const SourceDetails& details)
+{
+    const int cell = getCellAt(details.localPosition);
+    if (cell < 0) return;
+    const auto text = details.description.toString();
+    if (!text.startsWith("PhraserSample:")) return;
+    const int slot = text.fromFirstOccurrenceOf(":", false, false).getIntValue();
+    if (!juce::isPositiveAndBelow(slot, PhraserAudioProcessor::numSlots)) return;
+    processor.setStepSlot(cell, slot);
+    status.setText("Assigned sample " + juce::String(slot + 1)
+        + " to step cell " + juce::String(cell + 1), juce::dontSendNotification);
+    repaint(15, 613, 850, 177);
+}
+
+bool PhraserAudioProcessorEditor::isInterestedInFileDrag(
+    const juce::StringArray& files)
+{
+    for (const auto& path : files)
+        if (juce::File(path).hasFileExtension("wav")) return true;
+    return false;
+}
+
+void PhraserAudioProcessorEditor::filesDropped(
+    const juce::StringArray& files, int x, int y)
+{
+    // File drop is accepted only over the SAMPLE NAME column; multiple WAVs
+    // populate consecutive slots from the row where they were dropped.
+    if (x < 27 || x > 160 || y < laneTop
+        || y >= laneTop + lanePitch * PhraserAudioProcessor::numSlots)
+        return;
+    int slot = juce::jlimit(0, PhraserAudioProcessor::numSlots - 1,
+        static_cast<int>((y - laneTop) / lanePitch));
+    for (const auto& path : files)
+    {
+        if (slot >= PhraserAudioProcessor::numSlots) break;
+        const juce::File wav(path);
+        if (wav.hasFileExtension("wav") && wav.existsAsFile())
+            importSample(slot++, wav);
+    }
+}
+
 void PhraserAudioProcessorEditor::mouseDown(const juce::MouseEvent& event)
 {
     const float y = static_cast<float>(event.y);
@@ -574,15 +738,21 @@ void PhraserAudioProcessorEditor::mouseDown(const juce::MouseEvent& event)
         applyWaveDrag(event);
         return;
     }
-    if (event.y < 654 || event.y > 764 || event.x < 24 || event.x > 858) return;
-    const int col = juce::jlimit(0, 15, static_cast<int>((event.x - 24) / 52.1f));
-    const int row = juce::jlimit(0, 3, (event.y - 654) / 29);
-    const int step = row * 16 + col;
-    if (step >= processor.getActiveSteps()) return;
-    if (event.mods.isRightButtonDown()) processor.toggleLock(step);
-    else if (event.mods.isShiftDown()) processor.setStepSlot(step, selectedSlot);
-    else processor.toggleStep(step);
-    repaint(15, 612, 850, 175);
+
+    const int cell = getCellAt(event.getPosition());
+    if (cell < 0) return;
+    if (event.mods.isRightButtonDown())
+        showCellAssignmentMenu(cell, event.getScreenPosition());
+    else if (event.mods.isShiftDown())
+    {
+        processor.setStepSlot(cell, selectedSlot);
+        repaint(15, 613, 850, 177);
+    }
+    else
+    {
+        processor.toggleStep(cell);
+        repaint(15, 613, 850, 177);
+    }
 }
 
 void PhraserAudioProcessorEditor::mouseDrag(const juce::MouseEvent& event)
