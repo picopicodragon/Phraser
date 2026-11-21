@@ -12,6 +12,8 @@ struct PhraserSample
     juce::AudioBuffer<float> audio;
     double sampleRate = 44100.0;
     double detectedBpm = 0.0;
+    int detectedPitchClass = -1;
+    float pitchConfidence = 0.0f;
     juce::String sourcePath;
     std::vector<float> transients { 0.0f };
     std::array<float, waveformPoints> waveform {};
@@ -80,10 +82,13 @@ public:
     juce::String getSlotName(int slot) const;
     std::shared_ptr<const PhraserSample> getSampleSnapshot(int slot) const;
     int getTransientCount(int slot) const;
+    int getSamplePitchClass(int slot) const;
+    int getAutomaticTranspose(int slot) const;
     void randomizePattern();
     void toggleStep(int step);
     void toggleLock(int step);
     void setStepSlot(int step, int slot);
+    void setStepAt(int track, int column, int slot);
     void saveKeep(int index);
     void recallKeep(int index);
     PhraserPattern getPatternSnapshot() const;
@@ -98,6 +103,13 @@ public:
     float getPlayPosition(int slot) const;
     int getActiveSteps() const;
     int getStepsPerBar() const;
+    int getTrackCount() const;
+    int getCellCount() const;
+    int getBasePitchClass() const;
+    static int getCellIndex(int track, int step, int stepsPerTrack)
+    {
+        return track * stepsPerTrack + step;
+    }
     PhraserSlotSettings getSlotSettings(int slot) const;
     double getSampleTempo(int slot) const;
     void setSlotSettings(int slot, PhraserSlotSettings);
