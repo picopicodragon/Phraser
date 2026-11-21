@@ -190,11 +190,11 @@ PhraserAudioProcessorEditor::PhraserAudioProcessorEditor(PhraserAudioProcessor& 
 
     constexpr std::array<const char*, controlCount> ids {
         "density", "slice", "breaks", "swing", "gain", "fade",
-        "transient", "variation", "pitch", "pitchspread", "bars"
+        "transient", "variation", "pitch", "pitchspread", "bars", "division"
     };
     constexpr std::array<const char*, controlCount> names {
         "DENSITY", "SIZE", "BREAKS", "SWING", "OUTPUT", "FADE",
-        "SNAP", "VARIATION", "PITCH", "SPREAD", "BARS"
+        "SNAP", "VARIATION", "PITCH", "SPREAD", "BARS", "STEPS"
     };
     for (int i = 0; i < controlCount; ++i)
     {
@@ -369,12 +369,12 @@ void PhraserAudioProcessorEditor::paintLanes(juce::Graphics& g)
 void PhraserAudioProcessorEditor::paintSequence(juce::Graphics& g)
 {
     const auto phrase = processor.getPatternSnapshot();
-    const int columns = processor.getActiveSteps(); // 16 / 32 / 48 / 64
+    const int columns = processor.getActiveSteps(); // BARS * 8 or 16
     const int tracks = processor.getTrackCount();   // 4 / 2 / 1 / 1
     const int current = processor.getCurrentStep();
     g.setColour(slate);
     g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
-    g.drawText(juce::String(columns / 16) + " BARS / "
+    g.drawText(juce::String(columns / processor.getStepsPerBar()) + " BARS / "
                + juce::String(tracks) + " TRACKS / "
                + juce::String(columns) + " STEPS EACH",
                24, 625, 440, 22, juce::Justification::centredLeft);
@@ -414,7 +414,7 @@ void PhraserAudioProcessorEditor::paintSequence(juce::Graphics& g)
                 g.setColour(orange);
                 g.fillRect(x + juce::jmax(0.0f, w - 3.0f), y + 1.0f, 2.0f, 4.0f);
             }
-            if (step % 16 == 0)
+            if (step % processor.getStepsPerBar() == 0)
             {
                 g.setColour(slate.withAlpha(0.55f));
                 g.drawVerticalLine(static_cast<int>(x), rowY, rowY + rowHeight);
@@ -560,7 +560,7 @@ void PhraserAudioProcessorEditor::paint(juce::Graphics& g)
 
     g.setColour(muted);
     g.setFont(juce::FontOptions(10.0f));
-    g.drawText("Tonal samples auto-tune to reference key. Untuned drums/ambiguous audio stay unchanged. 16 steps/bar.",
+    g.drawText("Tonal samples auto-tune to reference key. BARS and STEPS adjust playback and grid.",
                22, 789, 843, 19, juce::Justification::centredLeft);
 }
 
