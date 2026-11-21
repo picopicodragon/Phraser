@@ -18,7 +18,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(JUCE)
 
 juce_add_plugin(Phraser
-    COMPANY_NAME "Phraser"
+    COMPANY_NAME "picopicodragon"
     BUNDLE_ID "com.picopicodragon.phraser"
     PLUGIN_MANUFACTURER_CODE PcDr
     PLUGIN_CODE Phrs
