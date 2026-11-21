@@ -288,10 +288,14 @@ void PhraserAudioProcessorEditor::loadSlot(int index)
 void PhraserAudioProcessorEditor::timerCallback()
 {
     const int active = processor.getCurrentStep();
-    if (active != lastStep)
+    const int columns = processor.getActiveSteps();
+    const int tracks = processor.getTrackCount();
+    if (active != lastStep || columns != lastColumns || tracks != lastTracks)
     {
         lastStep = active;
-        repaint(18, 637, 1242, 155);
+        lastColumns = columns;
+        lastTracks = tracks;
+        repaint(18, 613, 1242, 179);
     }
     repaint(360, 98, 501, 482);
     repaint(880, 447, 378, 346);
