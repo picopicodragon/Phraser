@@ -1,11 +1,14 @@
-# Phraser v0.8: per-source TUNE in compact waveform matrix
+# v0.9 compact drag/key/parallel-track layout
 
-The 1280×850 light off-white interface remains. Every sample lane now reads:
+The JUCE 1280×850 light-colored waveform workstation remains.
 
-`WAV name | FULL/5ms | SYNC/FREE | BPM | TUNE | waveform`
+- HEADER: REFERENCE KEY dropdown (C ... B). The previous obsolete STEPS/BAR rotary knob is removed, because v0.9 always uses 16 sixteenths per bar.
+- SAMPLE NAME column: Click to open WAV picker; drag an existing name onto a phrase step; drop WAVs from Explorer directly onto the name row. A detected pitch-class suffix is displayed when available, and the automatic reference-key transposition is shown in the tooltip.
+- Per-WAV FULL/5ms, SYNC/FREE, BPM and TUNE controls remain adjacent to each name.
+- WAVEFORM: Drag for start selection and Shift+drag for length selection, retained.
+- STEP GRID: Dynamic number of tracks/columns. BARS=1: 4×16. BARS=2: 2×32. BARS=3: 1×48. BARS=4: 1×64. All rows play in parallel, so the two- and four-track modes can layer samples at identical transport times.
+- STEP INTERACTION: Drop a sample name onto a cell, or right-click to select from a menu of all 16 sample names. Left-click toggles enabled, Shift-click assigns currently selected sample.
+- OVERLAP ORBIT: The circular view accounts for events in every enabled track.
+- Dense 48/64 column layouts use narrow bars with accent dividers at each 16-step bar; individual numeric labels are omitted at narrow widths.
 
-TUNE is an editable text field accepting integer semitones -12..+12, directly beside the BPM field. A positive value is displayed with a `+` prefix. Original pitch is `0`.
-
-The waveform display starts at x=427 rather than x=363, with width reduced from 495 to 431 so all 16 TUNE fields fit without increasing the window. Waveform range editing, the step grid and 16-ring overlap map remain intact.
-
-SYNC changes the playback timeline without transposing; TUNE changes the pitch independently. BPM detection and tuning are stored per source. A tuning change applies to newly triggered voices.
+All artwork and interaction code are Phraser-specific. No original phrz assets are included.
