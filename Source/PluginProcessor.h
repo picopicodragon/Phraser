@@ -172,6 +172,7 @@ private:
         int track = -1;
         float levelGain = 1.0f;
         double initialPitchSemitones = 0.0;
+        int appliedRootShift = 0;
         static constexpr int grainTimeMs = 30;
         int grainHopFrames = 1;
         int64_t currentGrainHop = -1;
