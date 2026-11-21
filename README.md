@@ -2,9 +2,9 @@
 
 Windows x64 VST3 sample-phrase generator for Ableton Live 12, JUCE 8.0.8 and C++17.
 
-## v1.0 experimental: key follow, sample mixer and redesigned bar orbit
+## v1.0.1 experimental: key follow, sample mixer and redesigned bar orbit
 
-Development branch: `feature/v10-key-mixer-orbit-mutes`, based on v0.9.1. This is a draft feature branch. Back up the installed working VST3 and use a test Live set until validation.
+Development branch: `fix/v101-ui-contrast-meters-step-labels`, based on v1.0. Existing v1.0 work remains separate. This is a draft feature branch. Back up the installed working VST3 and use a test Live set until validation.
 
 ### PREFERENCE KEY / root tuning
 
@@ -48,12 +48,18 @@ Development branch: `feature/v10-key-mixer-orbit-mutes`, based on v0.9.1. This i
 ```powershell
 cd C:\Users\picopicoDragon\Documents\Phraser
 git fetch origin
-git switch -c feature/v10-key-mixer-orbit-mutes --track origin/feature/v10-key-mixer-orbit-mutes
-cmake -S . -B build-v10 -G "Visual Studio 18 2026" -A x64
-cmake --build build-v10 --config Release --target Phraser_VST3
+git switch -c fix/v101-ui-contrast-meters-step-labels --track origin/fix/v101-ui-contrast-meters-step-labels
+cmake -S . -B build-v101 -G "Visual Studio 18 2026" -A x64
+cmake --build build-v101 --config Release --target Phraser_VST3
 ```
 
-VST3 directory: `build-v10/Phraser_artefacts/Release/VST3/Phraser.vst3`.
+VST3 directory: `build-v101/Phraser_artefacts/Release/VST3/Phraser.vst3`.
+
+## v1.0.1 UI corrections
+
+- Clear, dark PHRASE ENGINE numeric text and KEEP/RECALL button labels, independent of the host theme.
+- All step cells show the assigned sample's 01..16 number, including disabled cells. The **near-white** background differentiates silent steps at a glance; a narrow color stripe retains sample identity.
+- Reworked per-WAV VOLUME/LEVEL as one clean mixer strip with filled gain, overlayed live peak meter and percentage label, while keeping individual sample gain and audio-thread measurement unchanged.
 
 ## Limitations
 
