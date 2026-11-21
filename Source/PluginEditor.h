@@ -93,6 +93,7 @@ public:
     void mouseDown(const juce::MouseEvent&) override;
     void mouseDrag(const juce::MouseEvent&) override;
     void mouseUp(const juce::MouseEvent&) override;
+    void mouseMove(const juce::MouseEvent&) override;
     bool isInterestedInDragSource(const SourceDetails&) override;
     void itemDropped(const SourceDetails&) override;
     bool isInterestedInFileDrag(const juce::StringArray&) override;
