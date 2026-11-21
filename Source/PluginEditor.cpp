@@ -588,7 +588,7 @@ void PhraserAudioProcessorEditor::paintOverlapOrbit(juce::Graphics& g)
     for (int bar = 0; bar < bars; ++bar)
     {
         const float a = twoPi * bar / bars;
-        const float mid = twoPi * (bar + 0.5f) / bars;
+        const float mid = bars == 1 ? twoPi * 0.25f : twoPi * (bar + 0.5f) / bars;
         g.setColour(slate.withAlpha(0.36f));
         g.drawLine(cx + std::sin(a) * 20.0f, cy - std::cos(a) * 20.0f,
                    cx + std::sin(a) * 128.0f, cy - std::cos(a) * 128.0f, 1.2f);
@@ -707,8 +707,10 @@ void PhraserAudioProcessorEditor::resized()
         if (visible)
         {
             const int y = static_cast<int>(652.0f + track * (116.0f / tracks));
-            button.setBounds(23, y + 4, 42,
-                juce::jmax(18, static_cast<int>(116.0f / tracks) - 8));
+            const int rowHeight = static_cast<int>(116.0f / tracks);
+            const int buttonHeight = juce::jmin(25, juce::jmax(18, rowHeight - 8));
+            button.setBounds(23, y + (rowHeight - buttonHeight) / 2,
+                             42, buttonHeight);
             button.setButtonText(processor.isTrackMuted(track) ? "OFF" : "T" + juce::String(track + 1));
             button.setColour(juce::TextButton::buttonColourId,
                 processor.isTrackMuted(track) ? juce::Colour { 0xffe2a39e } : white);
