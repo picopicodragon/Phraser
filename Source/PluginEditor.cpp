@@ -359,48 +359,68 @@ void PhraserAudioProcessorEditor::paintLanes(juce::Graphics& g)
 void PhraserAudioProcessorEditor::paintSequence(juce::Graphics& g)
 {
     const auto phrase = processor.getPatternSnapshot();
-    const int active = processor.getActiveSteps();
-    const int division = processor.getStepsPerBar();
+    const int columns = processor.getActiveSteps(); // 16 / 32 / 48 / 64
+    const int tracks = processor.getTrackCount();   // 4 / 2 / 1 / 1
     const int current = processor.getCurrentStep();
     g.setColour(slate);
     g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
-    g.drawText("PHRASE / " + juce::String(active) + " STEPS / "
-               + juce::String(active / division) + " BARS", 24, 625, 360, 22,
-               juce::Justification::centredLeft);
+    g.drawText(juce::String(columns / 16) + " BARS / "
+               + juce::String(tracks) + " TRACKS / "
+               + juce::String(columns) + " STEPS EACH",
+               24, 625, 440, 22, juce::Justification::centredLeft);
     g.setColour(muted);
-    g.setFont(juce::FontOptions(10.0f));
-    g.drawText("CLICK mute   SHIFT+CLICK assign selected WAV   RIGHT-CLICK lock",
-               377, 625, 475, 22, juce::Justification::centredRight);
+    g.setFont(juce::FontOptions(9.5f));
+    g.drawText("DRAG SAMPLE TO CELL  |  RIGHT-CLICK: SELECT SAMPLE",
+               465, 625, 389, 22, juce::Justification::centredRight);
 
-    for (int i = 0; i < PhraserAudioProcessor::numSteps; ++i)
+    constexpr float left = 26.0f;
+    constexpr float width = 828.0f;
+    constexpr float top = 652.0f;
+    constexpr float height = 116.0f;
+    const float cellWidth = width / columns;
+    const float rowHeight = height / tracks;
+    for (int track = 0; track < tracks; ++track)
     {
-        const int row = i / 16;
-        const int col = i % 16;
-        const float x = 24.0f + col * 52.1f;
-        const float y = 654.0f + row * 29.0f;
-        const auto& e = phrase.events[static_cast<size_t>(i)];
-        const bool on = i < active && e.enabled;
-        const bool now = i == current && i < active;
-        g.setColour(i >= active ? juce::Colour { 0xffe7ece7 }
-                    : on ? sampleColour(juce::jlimit(0, 15, e.slot))
-                    : juce::Colour { 0xffd3dfd6 });
-        g.fillRoundedRectangle(x, y, 48.0f, 23.0f, 1.5f);
-        if (now)
+        const float rowY = top + track * rowHeight;
+        for (int step = 0; step < columns; ++step)
         {
-            g.setColour(green);
-            g.drawRoundedRectangle(x, y, 48.0f, 23.0f, 1.5f, 2.0f);
+            const int index = PhraserAudioProcessor::getCellIndex(track, step, columns);
+            const auto& event = phrase.events[static_cast<size_t>(index)];
+            const float x = left + step * cellWidth;
+            const float y = rowY + 4.0f;
+            const float w = juce::jmax(2.0f, cellWidth - 1.7f);
+            const float h = juce::jmax(16.0f, rowHeight - 7.0f);
+            g.setColour(event.enabled
+                ? sampleColour(juce::jlimit(0, 15, event.slot))
+                : juce::Colour { 0xffd3dfd6 });
+            g.fillRoundedRectangle(x, y, w, h, 1.2f);
+            if (step == current)
+            {
+                g.setColour(green);
+                g.drawRoundedRectangle(x, y, w, h, 1.2f, 1.6f);
+            }
+            if (event.locked)
+            {
+                g.setColour(orange);
+                g.fillRect(x + juce::jmax(0.0f, w - 3.0f), y + 1.0f, 2.0f, 4.0f);
+            }
+            if (step % 16 == 0)
+            {
+                g.setColour(slate.withAlpha(0.55f));
+                g.drawVerticalLine(static_cast<int>(x), rowY, rowY + rowHeight);
+            }
+            if (cellWidth >= 26.0f)
+            {
+                g.setColour(event.enabled ? juce::Colours::white : muted);
+                g.setFont(juce::FontOptions(9.0f, juce::Font::bold));
+                const auto text = event.enabled
+                    ? juce::String(event.slot + 1)
+                    : juce::String(step + 1);
+                g.drawText(text, static_cast<int>(x + 1),
+                           static_cast<int>(y), static_cast<int>(w - 1),
+                           static_cast<int>(h), juce::Justification::centred);
+            }
         }
-        if (i < active && e.locked)
-        {
-            g.setColour(orange);
-            g.fillRect(x + 43.0f, y + 2.0f, 3.0f, 3.0f);
-        }
-        g.setColour(on ? juce::Colours::white : muted);
-        g.setFont(juce::FontOptions(9.0f, juce::Font::bold));
-        g.drawText(juce::String(i + 1).paddedLeft('0', 2)
-                   + (on ? ":" + juce::String(e.slot + 1) : ""),
-                   static_cast<int>(x + 3.0f), static_cast<int>(y),
-                   42, 22, juce::Justification::centredLeft);
     }
 }
 
@@ -439,9 +459,11 @@ void PhraserAudioProcessorEditor::paintOverlapOrbit(juce::Graphics& g)
             const double sourceTempo = processor.getSampleTempo(slot);
             const double tempoRatio = settings.syncToHost && sourceTempo > 0.0
                 ? hostBpm / sourceTempo : 1.0;
+            for (int track = 0; track < processor.getTrackCount(); ++track)
             for (int i = 0; i < active; ++i)
             {
-                const auto& e = phrase.events[static_cast<size_t>(i)];
+                const int cell = PhraserAudioProcessor::getCellIndex(track, i, active);
+                const auto& e = phrase.events[static_cast<size_t>(cell)];
                 if (!e.enabled || e.slot != slot) continue;
                 const double seconds = e.length * source->audio.getNumSamples()
                     / source->sampleRate / tempoRatio;
@@ -494,6 +516,8 @@ void PhraserAudioProcessorEditor::paint(juce::Graphics& g)
     g.drawText("PHRASER", 23, 16, 182, 35, juce::Justification::centredLeft);
     g.setColour(muted);
     g.setFont(juce::FontOptions(11.0f));
+    g.drawText("REFERENCE KEY", 538, 25, 100, 19,
+               juce::Justification::centredRight);
     g.drawText("KEY / MULTITRACK / v0.9", 203, 23, 265, 21,
                juce::Justification::centredLeft);
     g.drawText("WAV on sample row: IMPORT   /   SAMPLE NAME to GRID: ASSIGN   /   WAVE DRAG: RANGE",
