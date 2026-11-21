@@ -427,6 +427,7 @@ void PhraserAudioProcessorEditor::paintSequence(juce::Graphics& g)
     const int columns = processor.getActiveSteps(); // BARS * 8 or 16
     const int tracks = processor.getTrackCount();   // 4 / 2 / 1 / 1
     const int current = processor.getCurrentStep();
+    const int stepsPerBar = processor.getStepsPerBar();
     g.setColour(slate);
     g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
     g.drawText(juce::String(columns / processor.getStepsPerBar()) + " BARS / "
@@ -435,11 +436,11 @@ void PhraserAudioProcessorEditor::paintSequence(juce::Graphics& g)
                24, 625, 440, 22, juce::Justification::centredLeft);
     g.setColour(muted);
     g.setFont(juce::FontOptions(9.5f));
-    g.drawText("DRAG SAMPLE TO CELL  |  RIGHT-CLICK: SELECT SAMPLE",
+    g.drawText("DRAG SAMPLE / RIGHT CLICK TO ASSIGN  |  LEFT: TOGGLE",
                465, 625, 389, 22, juce::Justification::centredRight);
 
-    constexpr float left = 26.0f;
-    constexpr float width = 828.0f;
+    constexpr float left = 75.0f;
+    constexpr float width = 779.0f;
     constexpr float top = 652.0f;
     constexpr float height = 116.0f;
     const float cellWidth = width / columns;
@@ -447,6 +448,11 @@ void PhraserAudioProcessorEditor::paintSequence(juce::Graphics& g)
     for (int track = 0; track < tracks; ++track)
     {
         const float rowY = top + track * rowHeight;
+        g.setColour(processor.isTrackMuted(track)
+            ? juce::Colour { 0xffcd897d } : slate);
+        g.setFont(juce::FontOptions(9.0f, juce::Font::bold));
+        g.drawText("T" + juce::String(track + 1), 5,
+            static_cast<int>(rowY + 3), 17, 20, juce::Justification::centred);
         for (int step = 0; step < columns; ++step)
         {
             const int index = PhraserAudioProcessor::getCellIndex(track, step, columns);
@@ -455,10 +461,19 @@ void PhraserAudioProcessorEditor::paintSequence(juce::Graphics& g)
             const float y = rowY + 4.0f;
             const float w = juce::jmax(2.0f, cellWidth - 1.7f);
             const float h = juce::jmax(16.0f, rowHeight - 7.0f);
-            g.setColour(event.enabled
-                ? sampleColour(juce::jlimit(0, 15, event.slot))
-                : juce::Colour { 0xffd3dfd6 });
+            const int slot = juce::jlimit(0, 15, event.slot);
+            const bool loaded = static_cast<bool>(processor.getSampleSnapshot(slot));
+            const auto tint = sampleColour(slot);
+            g.setColour(event.enabled ? tint
+                : loaded ? tint.interpolatedWith(juce::Colour { 0xffe3ece5 }, 0.73f)
+                         : juce::Colour { 0xffd3dfd6 });
             g.fillRoundedRectangle(x, y, w, h, 1.2f);
+            // Sample identity remains visible when its cell is muted.
+            if (loaded && !event.enabled)
+            {
+                g.setColour(tint);
+                g.fillRect(x + 1.0f, y + h - 3.0f, juce::jmax(1.0f, w - 2.0f), 2.0f);
+            }
             if (step == current)
             {
                 g.setColour(green);
@@ -469,7 +484,7 @@ void PhraserAudioProcessorEditor::paintSequence(juce::Graphics& g)
                 g.setColour(orange);
                 g.fillRect(x + juce::jmax(0.0f, w - 3.0f), y + 1.0f, 2.0f, 4.0f);
             }
-            if (step % processor.getStepsPerBar() == 0)
+            if (step % stepsPerBar == 0)
             {
                 g.setColour(slate.withAlpha(0.55f));
                 g.drawVerticalLine(static_cast<int>(x), rowY, rowY + rowHeight);
@@ -581,7 +596,7 @@ void PhraserAudioProcessorEditor::paint(juce::Graphics& g)
     g.drawText("PHRASER", 23, 16, 182, 35, juce::Justification::centredLeft);
     g.setColour(muted);
     g.setFont(juce::FontOptions(11.0f));
-    g.drawText("REFERENCE KEY", 538, 25, 100, 19,
+    g.drawText("PREFERENCE KEY", 532, 25, 106, 19,
                juce::Justification::centredRight);
     g.drawText("KEY / MULTITRACK / v0.9", 203, 23, 265, 21,
                juce::Justification::centredLeft);
@@ -688,7 +703,7 @@ void PhraserAudioProcessorEditor::applyWaveDrag(const juce::MouseEvent& event)
 
 int PhraserAudioProcessorEditor::getCellAt(juce::Point<int> point) const
 {
-    constexpr float left = 26.0f, width = 828.0f;
+    constexpr float left = 75.0f, width = 779.0f;
     constexpr float top = 652.0f, height = 116.0f;
     if (point.x < left || point.x >= left + width
         || point.y < top || point.y >= top + height)
