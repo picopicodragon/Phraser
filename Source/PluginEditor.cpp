@@ -15,11 +15,15 @@ const juce::Colour orange { 0xffb76a34 };
 
 juce::Colour sampleColour(int index)
 {
-    const std::array<juce::Colour, 4> families {
-        juce::Colour { 0xff167d77 }, juce::Colour { 0xffb47635 },
-        juce::Colour { 0xff675cb5 }, juce::Colour { 0xffb45078 }
+    // Sixteen separate, stable source identities. Bright enough to remain
+    // distinguishable in the step grid and circular overview.
+    static constexpr std::array<juce::uint32, 16> colours {
+        0xff167d77, 0xffcf653d, 0xff6856b6, 0xffbd457b,
+        0xff2f9a52, 0xffd39928, 0xff397cc1, 0xffbf56a3,
+        0xff00a9a6, 0xffd45157, 0xff8660bd, 0xff7d9124,
+        0xff408ca2, 0xffab6c26, 0xff6054c8, 0xffcc4775
     };
-    return families[static_cast<size_t>(index / 4)];
+    return juce::Colour { colours[static_cast<size_t>(juce::jlimit(0, 15, index))] };
 }
 
 class CompactLookAndFeel final : public juce::LookAndFeel_V4
@@ -96,6 +100,7 @@ PhraserAudioProcessorEditor::PhraserAudioProcessorEditor(PhraserAudioProcessor& 
     {
         auto& load = slotButtons[static_cast<size_t>(i)];
         load.sampleSlot = i;
+        load.onContextMenu = [this, i] { showSampleKeyMenu(i); };
         load.setTooltip("Click to load WAV; drag sample name onto any phrase cell; accept Explorer WAV drops");
         load.onClick = [this, i]
         {
@@ -275,7 +280,7 @@ void PhraserAudioProcessorEditor::updateSlotControls()
         const auto suffix = noteIndex >= 0
             ? " [" + juce::String(notes[noteIndex]) + "]" : "";
         load.setButtonText(juce::String(i + 1).paddedLeft('0', 2) + " "
-                           + processor.getSlotName(i).substring(0, 7) + suffix);
+                           + processor.getSlotName(i).substring(0, 5) + suffix);
         load.setTooltip("Source pitch class: "
             + (noteIndex >= 0 ? juce::String(notes[noteIndex])
                 + " / automatic correction " + juce::String(processor.getAutomaticTranspose(i))
@@ -710,12 +715,38 @@ void PhraserAudioProcessorEditor::importSample(int slot, const juce::File& file)
                        juce::dontSendNotification);
         return;
     }
-    const int pitchClass = processor.getSamplePitchClass(slot);
+    const int pitchClass = processor.getEffectiveSourceKey(slot);
     const juce::String suffix = pitchClass >= 0
         ? ", root detected; auto-tuned " + juce::String(processor.getAutomaticTranspose(slot))
               + " semitones"
         : ", no confident root (no automatic tuning)";
     status.setText("Loaded " + file.getFileName() + suffix, juce::dontSendNotification);
+}
+
+void PhraserAudioProcessorEditor::showSampleKeyMenu(int slot)
+{
+    if (!juce::isPositiveAndBelow(slot, PhraserAudioProcessor::numSlots)) return;
+    const char* names[] = {
+        "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"
+    };
+    const auto settings = processor.getSlotSettings(slot);
+    juce::PopupMenu menu;
+    menu.addSectionHeader("SOURCE ROOT / SAMPLE " + juce::String(slot + 1));
+    menu.addItem(1, "AUTO DETECT", true, settings.sourceKeyOverride == -1);
+    for (int key = 0; key < 12; ++key)
+        menu.addItem(key + 2, names[key], true, settings.sourceKeyOverride == key);
+    const juce::Component::SafePointer<PhraserAudioProcessorEditor> safe(this);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(
+        &slotButtons[static_cast<size_t>(slot)]),
+        [safe, slot](int choice)
+        {
+            if (safe == nullptr || choice < 1 || choice > 13) return;
+            auto updated = safe->processor.getSlotSettings(slot);
+            updated.sourceKeyOverride = choice == 1 ? -1 : choice - 2;
+            safe->processor.setSlotSettings(slot, updated);
+            safe->updateSlotControls();
+            safe->repaint();
+        });
 }
 
 void PhraserAudioProcessorEditor::showCellAssignmentMenu(
