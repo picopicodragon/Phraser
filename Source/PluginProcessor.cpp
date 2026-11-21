@@ -671,7 +671,7 @@ void PhraserAudioProcessor::getStateInformation(juce::MemoryBlock& destination)
 {
     auto xml = parameters.copyState().createXml();
     if (!xml) return;
-    xml->setAttribute("phraserVersion", 8);
+    xml->setAttribute("phraserVersion", 9);
     std::array<PhraserSlotSettings, numSlots> ranges;
     {
         const juce::ScopedLock guard(settingsLock);
