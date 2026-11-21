@@ -539,6 +539,7 @@ void PhraserAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
 
     const int subdivision = getStepsPerBar();
     const int active = getActiveSteps();
+    const int trackCount = active == 16 ? 4 : (active == 32 ? 2 : 1);
     const double stepAdvance = (bpm / 60.0 * subdivision / 4.0) / engineSampleRate;
     const double baseStep = *ppq * (subdivision / 4.0);
     const double swing = parameters.getRawParameterValue("swing")->load();
@@ -570,8 +571,7 @@ void PhraserAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
                 }
             // Each lane is a parallel track, with its own event at this
             // absolute step. All tracks can trigger at the same instant.
-            const int tracks = getTrackCount();
-            for (int track = 0; track < tracks; ++track)
+            for (int track = 0; track < trackCount; ++track)
             {
                 const int cell = getCellIndex(track, column, active);
                 startStep(localPattern->events[static_cast<size_t>(cell)],
