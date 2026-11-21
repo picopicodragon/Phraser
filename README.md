@@ -1,55 +1,78 @@
 # Phraser
 
-Windows x64 VST3 phrase sampler for Ableton Live 12, written with C++17 and JUCE 8.0.8.
+Independent Windows x64 VST3 generative sample instrument for Ableton Live 12, built with JUCE 8.0.8 and C++17.
 
-## v0.8 experimental: pitch-independent sample tempo sync
+## v0.9 experimental
 
-**Branch**: `feature/v08-independent-pitch-stretch`, based on the v0.7.1 WAV-import crash hotfix. **The working installed version remains untouched**. Windows CI compilation and Live 12 audio-quality tests are required.
+Development branch: `feature/v09-drag-key-multitrack`. Base is the v0.8 pitch-independent time-stretch implementation. Existing working builds remain on their original branches.
 
-### What changed
+### 1. WAV drag-and-drop
 
-- **Per-WAV TUNE** field directly to the right of each sample's editable BPM. Enter **-12 to +12 semitones**, with `0` for original pitch.
-- **SYNC** changes sample duration to match `Live BPM / detected or manually-entered sample BPM` **without multiplying the audio read rate by that ratio**. Source pitch is held by a two-grain overlap-add resynthesis engine. A Live tempo change during playback updates the voice's timeline advancement but does not alter the voice's grain pitch read rate.
-- The global `PITCH` knob and phrase `PITCH SPREAD` remain in place. Actual pitch = global pitch + per-WAV TUNE + step pitch, limited to ±24 semitones.
-- For FREE, the timeline advances at the sample's original rate; TUNE alters pitch without intentionally shortening the programmed slice's duration.
-- 32 independent voices, 16 WAV waveform lanes, per-sample FULL/5ms and SYNC/FREE switches, direct waveform range edits, 64-step phrase grid, circular overlap view and Keep A/B are preserved.
-- Per-sample tuning is saved in the Live project (`SampleSlot.pitchSemitones`). Old sessions default to 0 semitones. The generated phrase and previous sample path references remain compatible.
+Drag one or more WAV files from Windows Explorer onto the **SAMPLE NAME** column of any row. A single WAV loads into that sample slot; multiple WAVs fill consecutive slots up to number 16. Click the sample name to open the normal file picker, as before. The import is still synchronous and subject to the existing per-WAV size limit.
 
-### Implementation
+### 2. Reference note and automatic transposition
 
-The v0.7 SYNC mode performed naive playback-rate resampling, which transposed the sample as Live BPM changed. v0.8 separates (a) the **source timeline** at normal or tempo-matched speed from (b) **grain-local playback** at the selected musical pitch. It crossfades two short, overlapping grains (nominal 60 ms each with 30 ms hop) using smoothstep weights and a bounded waveform-similarity search near new grain starts to reduce phase cancellation. The voice's fixed-size state requires no new large buffers or allocations in its per-sample render loop.
+A **REFERENCE KEY** drop-down in the header accepts C, C#, D, D#, E, F, F#, G, G#, A, A#, B. This is a **pitch class/reference root**, not a major/minor musical-key classification.
 
-This is an **initial, lightweight time-domain overlap-add (OLA) implementation**, not a professional formant-preserving WSOLA/phase-vocoder engine. It can produce audible phasing, graininess, transient smearing or modulation at strong tempo/pitch ratios, especially on complex or sustained material. Tempo estimation can still be inaccurate and half/double-time ambiguous; correct each WAV's editable BPM manually. A more advanced transient-aware stretching engine remains a future quality milestone.
+When a WAV is loaded, an offline 4096-point FFT analyzes its spectral peaks across several time windows. For **confidently monophonic/tonal** material, it estimates a dominant pitch class. Playback then applies the shortest transposition within ±6 semitones from the detected pitch class to the selected reference pitch class. This auto-tune offset is combined with the source's editable TUNE (±12 semitones), the global PITCH, and the phrase event's pitch offset; the overall sum is limited to ±24 semitones. The v0.8 pitch-independent granular engine preserves this tuning when Live BPM changes.
 
-### Controls
+For drums, noise, chords, or ambiguous material, the detector may return **unknown**, in which case the automatic transpose is zero rather than forcing a guessed pitch. The WAV's detected note appears beside its shortened name (when known), and the sample button tooltip shows its current automatic semitone offset. The reference key is a DAW parameter, so it is stored with Live projects and affects newly triggered voices.
 
-Each sample lane: `WAV filename | FULL/5ms | SYNC/FREE | BPM | TUNE | waveform`.
+**Important:** This is a conservative dominant-pitch detector, not professional musical-key detection or formant-preserving pitch correction. Complex/polyphonic recordings may be misidentified; users can still adjust per-WAV TUNE manually. No automatic major/minor key or chord analysis is claimed.
 
-- **BPM**: type 40–240 or `0` for automatic estimate; `?` indicates unknown BPM.
-- **TUNE**: type integer -12..+12. Tune is sampled when a voice triggers; already playing voices keep their initial tuning.
-- **SYNC**: use Live BPM for the sample's timeline while preserving the chosen pitch.
-- **FREE**: do not tempo-match the sample, keeping its native sample timing.
-- **FULL/5ms**: sustain the chosen slice or release the slot's voices at the next sequencer step.
-- Waveform dragging sets start window. Shift+drag sets duration window. GENERATE uses those ranges for future slice events.
+### 3. Phrase-cell sample assignment
+
+- **Drag a sample name** from the SAMPLE list onto a phrase grid cell to assign it to that cell and enable it.
+- **Right-click any phrase cell** to open a context menu listing all 16 WAV slots, including an option to toggle the step or toggle its LOCK state.
+- Normal **left-click** toggles step mute; **Shift+click** assigns the last-selected WAV. These functions are preserved.
+- Loading a WAV into a previously assigned slot changes the timbre of all the cells using that slot, without changing their arrangements.
+
+### 4. New arrangement by BARS
+
+Every musical bar uses **16 steps** at 16th-note resolution. BARS selects the length of each track and the number of **simultaneously running tracks**, within the same 64-cell pattern budget:
+
+| BARS | STEPS PER TRACK | TRACKS | Pattern cells |
+| --- | --- | --- | --- |
+| 1 | 16 | 4 | 64 |
+| 2 | 32 | 2 | 64 |
+| 3 | 48 | 1 | 48 |
+| 4 | 64 | 1 | 64 |
+
+Within every bar, all enabled tracks trigger their corresponding cells **at the same transport position**. For one bar, four separate 16-step rows play in parallel. For two bars, two 32-step rows play in parallel. Three and four bars use one longer row respectively. Grid cells are indexed by `row * stepsPerTrack + step`.
+
+The older 8/16 STEPS/BAR parameter is retained internally only to permit legacy DAW parameter-state loading; the control is hidden and v0.9 **always plays 16 steps per bar**. BARS changes the interpretation of the 64 stored pattern events, so **a pattern edited at one BARS setting may sound differently after changing BARS**. Use Keep A/B or separate Live sets to preserve alternate configurations.
+
+### Preserved features
+
+- 16 WAV slots and waveform peaks with dragging to edit START FROM/TO and LENGTH MIN/MAX.
+- Per-WAV FULL/5ms, SYNC/FREE, editable BPM and TUNE.
+- Source onset-based sample tempo estimate, pitch-independent resynthesis, 32-voice overlap.
+- Random generation, density, breaks, variation, swing, transient snap, pitch spread, gain/fade.
+- Phrase Keep A/B snapshots, project-state persistence and circular overlap visualization.
 
 ## Windows build
 
 ```powershell
 cd C:\Users\picopicoDragon\Documents\Phraser
 git fetch origin
-git switch -c feature/v08-independent-pitch-stretch --track origin/feature/v08-independent-pitch-stretch
-cmake -S . -B build-v08 -G "Visual Studio 18 2026" -A x64
-cmake --build build-v08 --config Release --target Phraser_VST3
+git switch -c feature/v09-drag-key-multitrack --track origin/feature/v09-drag-key-multitrack
+cmake -S . -B build-v09 -G "Visual Studio 18 2026" -A x64
+cmake --build build-v09 --config Release --target Phraser_VST3
 ```
 
-Output bundle directory: `build-v08/Phraser_artefacts/Release/VST3/Phraser.vst3`. Exit Live and back up the prior installed VST3 before updating `C:\Program Files\Common Files\VST3\Phraser.vst3`.
+VST3 bundle: `build-v09/Phraser_artefacts/Release/VST3/Phraser.vst3`. Quit Live and back up the previous installed VST3 bundle before replacing `C:\Program Files\Common Files\VST3\Phraser.vst3`.
 
-## Limitations
+## Known limitations
 
-- WAV import remains synchronous, and sample ownership uses atomic shared_ptr; hard-realtime safety is not guaranteed.
-- A total of 32 voices are supported, oldest voice stolen abruptly if exceeded; sums can clip.
-- Granular OLA does not guarantee identical sound to source at extreme ratios; verify with ears before production use.
-- Files are referenced by absolute paths, not embedded with the project.
-- VST3 requires Ableton Live 12 / Windows; built on Visual Studio 2026 on PC1 or the GitHub Windows CI runner.
+This is an **experimental** branch. Build success does not establish Ableton Live 12 host reliability.
 
-Detailed regression plan: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+- Source pitch estimation is strongest on steady, monophonic, pitched signals; not a robust full-song harmonic key estimator.
+- Samples with ambiguous pitch are not automatically tuned. Automatic transpose uses the nearest ±6 semitone distance between root pitch classes, not a musical mode.
+- Existing two-grain WSOLA-inspired tempo/pitch processing can generate audible modulation on some material.
+- Files are imported and analyzed synchronously, and audio-thread shared_ptr retirement is not strictly hard-real-time safe.
+- Max 32 simultaneous voices; oldest-voice stealing is abrupt and simultaneous sources can clip.
+- WAVs remain external, referenced by absolute paths. Existing file size restrictions apply.
+- 64 stored cells are reinterpreted when BARS changes, rather than maintaining separate arrangement snapshots for each BARS value.
+- Fixed 1280×850 GUI. At 48/64 steps in a single track the cells become narrow; hover/context menu and drag are preferable to reading tiny step labels.
+
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for Windows/Live QA.
