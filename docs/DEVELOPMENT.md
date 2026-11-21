@@ -45,6 +45,7 @@ Known unresolved issues: pitch detection can be ambiguous, granular pitch correc
 - [ ] Enabled step cells retain sample-specific colors and display two-digit **sample slot numbers**, not step column numbers.
 - [ ] Silent steps have almost-white backgrounds yet their assigned sample's number and thin color marker remain readable.
 - [ ] At BARS=4/STEPS=16 (64 columns), sample numbers fit within the narrowest cells; no spill outside cells.
+- [ ] Hovering any step reveals track, column, assigned source number and full WAV filename in the status footer.
 - [ ] At 8/16 subdivisions and all BARS modes, step labels and drag/drop hitboxes remain aligned.
 - [ ] Existing source/key tuning, sample/track mute, DAW save/restore and WAV loading remain functional.
 - [ ] Test on Windows with 100% and 150% display scaling; verify plugin UI legibility.
