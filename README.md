@@ -2,9 +2,9 @@
 
 Independent Windows x64 VST3 generative sample instrument for Ableton Live 12, built with JUCE 8.0.8 and C++17.
 
-## v0.9 experimental
+## v0.9.1 experimental
 
-Development branch: `feature/v09-drag-key-multitrack`. Base is the v0.8 pitch-independent time-stretch implementation. Existing working builds remain on their original branches.
+Development branch: `feature/v091-restore-steps-control`. Base is v0.9, which itself is based on v0.8 pitch-independent time-stretch implementation. Existing working builds remain on their original branches.
 
 ### 1. WAV drag-and-drop
 
@@ -27,20 +27,20 @@ For drums, noise, chords, or ambiguous material, the detector may return **unkno
 - Normal **left-click** toggles step mute; **Shift+click** assigns the last-selected WAV. These functions are preserved.
 - Loading a WAV into a previously assigned slot changes the timbre of all the cells using that slot, without changing their arrangements.
 
-### 4. New arrangement by BARS
+### 4. BARS and STEPS: parallel-track arrangement
 
-Every musical bar uses **16 steps** at 16th-note resolution. BARS selects the length of each track and the number of **simultaneously running tracks**, within the same 64-cell pattern budget:
+Each bar uses **8 or 16 steps**, selected by the restored **STEPS** control beside BARS. The host tempo clock advances by eighth notes at 8 steps/bar or sixteenth notes at 16 steps/bar. BARS selects the length of each track and the number of **simultaneously running tracks**, within the same 64-cell pattern budget:
 
-| BARS | STEPS PER TRACK | TRACKS | Pattern cells |
+| BARS | STEPS=8 (per track) | STEPS=16 (per track) | Parallel tracks |
 | --- | --- | --- | --- |
-| 1 | 16 | 4 | 64 |
-| 2 | 32 | 2 | 64 |
-| 3 | 48 | 1 | 48 |
-| 4 | 64 | 1 | 64 |
+| 1 | 8 | 16 | 4 |
+| 2 | 16 | 32 | 2 |
+| 3 | 24 | 48 | 1 |
+| 4 | 32 | 64 | 1 |
 
-Within every bar, all enabled tracks trigger their corresponding cells **at the same transport position**. For one bar, four separate 16-step rows play in parallel. For two bars, two 32-step rows play in parallel. Three and four bars use one longer row respectively. Grid cells are indexed by `row * stepsPerTrack + step`.
+Within every bar, all enabled tracks trigger their corresponding cells **at the same transport position**. For one bar at STEPS=16, four separate 16-step rows play in parallel. For two bars at STEPS=16, two 32-step rows play in parallel. Three and four bars use one longer row respectively. STEPS=8 halves the number of columns and uses eighth-note timing. Grid cells are indexed by `row * stepsPerTrack + step`.
 
-The older 8/16 STEPS/BAR parameter is retained internally only to permit legacy DAW parameter-state loading; the control is hidden and v0.9 **always plays 16 steps per bar**. BARS changes the interpretation of the 64 stored pattern events, so **a pattern edited at one BARS setting may sound differently after changing BARS**. Use Keep A/B or separate Live sets to preserve alternate configurations.
+The existing `division` parameter is **active again** as STEPS (8 or 16), beside BARS; old project values remain compatible. BARS changes the interpretation of the 64 stored pattern events, so **a pattern edited at one BARS setting may sound differently after changing BARS**. Use Keep A/B or separate Live sets to preserve alternate configurations.
 
 ### Preserved features
 
@@ -55,12 +55,12 @@ The older 8/16 STEPS/BAR parameter is retained internally only to permit legacy 
 ```powershell
 cd C:\Users\picopicoDragon\Documents\Phraser
 git fetch origin
-git switch -c feature/v09-drag-key-multitrack --track origin/feature/v09-drag-key-multitrack
-cmake -S . -B build-v09 -G "Visual Studio 18 2026" -A x64
-cmake --build build-v09 --config Release --target Phraser_VST3
+git switch -c feature/v091-restore-steps-control --track origin/feature/v091-restore-steps-control
+cmake -S . -B build-v091 -G "Visual Studio 18 2026" -A x64
+cmake --build build-v091 --config Release --target Phraser_VST3
 ```
 
-VST3 bundle: `build-v09/Phraser_artefacts/Release/VST3/Phraser.vst3`. Quit Live and back up the previous installed VST3 bundle before replacing `C:\Program Files\Common Files\VST3\Phraser.vst3`.
+VST3 bundle: `build-v091/Phraser_artefacts/Release/VST3/Phraser.vst3`. Quit Live and back up the previous installed VST3 bundle before replacing `C:\Program Files\Common Files\VST3\Phraser.vst3`.
 
 ## Known limitations
 
