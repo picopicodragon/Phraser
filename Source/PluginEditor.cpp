@@ -71,6 +71,17 @@ PhraserAudioProcessorEditor::PhraserAudioProcessorEditor(PhraserAudioProcessor& 
     theme = std::make_unique<CompactLookAndFeel>();
     setLookAndFeel(theme.get());
     setSize(1280, 850);
+    const juce::StringArray noteNames {
+        "C", "C#", "D", "D#", "E", "F",
+        "F#", "G", "G#", "A", "A#", "B"
+    };
+    for (int k = 0; k < noteNames.size(); ++k)
+        referenceKeyBox.addItem(noteNames[k], k + 1);
+    referenceKeyBox.setTooltip("Reference pitch class. Tonal WAVs tune to this note automatically.");
+    addAndMakeVisible(referenceKeyBox);
+    referenceKeyAttachment =
+        std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+            processor.parameters, "targetKey", referenceKeyBox);
 
     addAndMakeVisible(generateButton);
     generateButton.setColour(juce::TextButton::buttonColourId, juce::Colour { 0xffbfdfca });
@@ -84,8 +95,11 @@ PhraserAudioProcessorEditor::PhraserAudioProcessorEditor(PhraserAudioProcessor& 
     for (int i = 0; i < PhraserAudioProcessor::numSlots; ++i)
     {
         auto& load = slotButtons[static_cast<size_t>(i)];
+        load.sampleSlot = i;
+        load.setTooltip("Click to load WAV; drag sample name onto any phrase cell; accept Explorer WAV drops");
         load.onClick = [this, i]
         {
+            if (slotButtons[static_cast<size_t>(i)].dragStarted) return;
             selectedSlot = i;
             updateSlotControls();
             loadSlot(i);
@@ -176,11 +190,11 @@ PhraserAudioProcessorEditor::PhraserAudioProcessorEditor(PhraserAudioProcessor& 
 
     constexpr std::array<const char*, controlCount> ids {
         "density", "slice", "breaks", "swing", "gain", "fade",
-        "transient", "variation", "pitch", "pitchspread", "bars", "division"
+        "transient", "variation", "pitch", "pitchspread", "bars"
     };
     constexpr std::array<const char*, controlCount> names {
         "DENSITY", "SIZE", "BREAKS", "SWING", "OUTPUT", "FADE",
-        "SNAP", "VARIATION", "PITCH", "SPREAD", "BARS", "STEPS/BAR"
+        "SNAP", "VARIATION", "PITCH", "SPREAD", "BARS"
     };
     for (int i = 0; i < controlCount; ++i)
     {
@@ -197,7 +211,7 @@ PhraserAudioProcessorEditor::PhraserAudioProcessorEditor(PhraserAudioProcessor& 
     }
 
     status.setColour(juce::Label::textColourId, muted);
-    status.setText("Drag wave = start range; SHIFT+drag = length. BPM: 0 = auto. PITCH: per-WAV semitones.",
+    status.setText("WAV -> SAMPLE: drop file. SAMPLE -> CELL: drag name. RIGHT-CLICK CELL: choose WAV. KEY: root note.",
                    juce::dontSendNotification);
     addAndMakeVisible(status);
     updateSlotControls();
@@ -216,8 +230,20 @@ void PhraserAudioProcessorEditor::updateSlotControls()
     {
         auto setting = processor.getSlotSettings(i);
         auto& load = slotButtons[static_cast<size_t>(i)];
-        load.setButtonText(juce::String(i + 1).paddedLeft('0', 2) + "  "
-                           + processor.getSlotName(i).substring(0, 11));
+        const auto noteIndex = processor.getSamplePitchClass(i);
+        static const char* notes[] = {
+            "C", "C#", "D", "D#", "E", "F",
+            "F#", "G", "G#", "A", "A#", "B"
+        };
+        const auto suffix = noteIndex >= 0
+            ? " [" + juce::String(notes[noteIndex]) + "]" : "";
+        load.setButtonText(juce::String(i + 1).paddedLeft('0', 2) + " "
+                           + processor.getSlotName(i).substring(0, 7) + suffix);
+        load.setTooltip("Detected pitch class: "
+            + (noteIndex >= 0 ? juce::String(notes[noteIndex])
+                + " / automatic correction " + juce::String(processor.getAutomaticTranspose(i))
+                + " semitones" : juce::String("unknown, no automatic tuning"))
+            + ". Drag onto step cell to assign. Click to load, or drop WAV here.");
         load.setColour(juce::TextButton::buttonColourId,
                        i == selectedSlot ? juce::Colour { 0xffc3dfd0 } : white);
         auto& mode = modeButtons[static_cast<size_t>(i)];
@@ -255,14 +281,7 @@ void PhraserAudioProcessorEditor::loadSlot(int index)
             if (safe == nullptr) return;
             const auto file = fc.getResult();
             if (file == juce::File {}) return;
-            const bool loaded = safe->processor.loadWavFile(index, file);
-            safe->updateSlotControls();
-            safe->repaint();
-            safe->status.setText(loaded
-                ? "Loaded " + file.getFileName() + ", BPM " +
-                  juce::String(safe->processor.getSampleTempo(index), 0)
-                : "WAV load failed",
-                juce::dontSendNotification);
+            safe->importSample(index, file);
         });
 }
 
@@ -475,9 +494,9 @@ void PhraserAudioProcessorEditor::paint(juce::Graphics& g)
     g.drawText("PHRASER", 23, 16, 182, 35, juce::Justification::centredLeft);
     g.setColour(muted);
     g.setFont(juce::FontOptions(11.0f));
-    g.drawText("PITCH-INDEPENDENT SYNC / v0.8", 203, 23, 285, 21,
+    g.drawText("KEY / MULTITRACK / v0.9", 203, 23, 265, 21,
                juce::Justification::centredLeft);
-    g.drawText("DRAG wave: START FROM / TO     SHIFT+DRAG: LENGTH MIN / MAX",
+    g.drawText("WAV on sample row: IMPORT   /   SAMPLE NAME to GRID: ASSIGN   /   WAVE DRAG: RANGE",
                23, 58, 850, 22, juce::Justification::centredLeft);
     g.setColour(rule);
     g.drawHorizontalLine(86, 20.0f, 1261.0f);
@@ -488,7 +507,7 @@ void PhraserAudioProcessorEditor::paint(juce::Graphics& g)
     g.drawText("CLOCK", 226, 88, 60, 15, juce::Justification::centredLeft);
     g.drawText("BPM", 293, 88, 55, 15, juce::Justification::centred);
     g.drawText("TUNE", 355, 88, 60, 15, juce::Justification::centred);
-    g.drawText("WAVEFORM / START (GREEN) / DURATION (OCHRE)",
+    g.drawText("WAVEFORM / START (GREEN) / LENGTH (OCHRE)",
                428, 88, 430, 15, juce::Justification::centredLeft);
 
     paintLanes(g);
@@ -507,7 +526,7 @@ void PhraserAudioProcessorEditor::paint(juce::Graphics& g)
 
     g.setColour(muted);
     g.setFont(juce::FontOptions(10.0f));
-    g.drawText("SYNC changes duration without changing pitch. TUNE = -12..+12 semitones; BPM = 0 for automatic.",
+    g.drawText("Tonal samples auto-tune to reference key. Untuned drums/ambiguous audio stay unchanged. 16 steps/bar.",
                22, 789, 843, 19, juce::Justification::centredLeft);
 }
 
@@ -535,6 +554,7 @@ void PhraserAudioProcessorEditor::resized()
         saveButtons[static_cast<size_t>(i)].setBounds(899 + i * 175, 422, 82, 23);
         recallButtons[static_cast<size_t>(i)].setBounds(987 + i * 175, 422, 81, 23);
     }
+    referenceKeyBox.setBounds(641, 20, 103, 27);
     status.setBounds(22, 814, 1238, 25);
 }
 
