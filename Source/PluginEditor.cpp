@@ -290,6 +290,12 @@ void PhraserAudioProcessorEditor::timerCallback()
     const int active = processor.getCurrentStep();
     const int columns = processor.getActiveSteps();
     const int tracks = processor.getTrackCount();
+    const int key = processor.getBasePitchClass();
+    if (key != lastReferenceKey)
+    {
+        lastReferenceKey = key;
+        updateSlotControls();
+    }
     if (active != lastStep || columns != lastColumns || tracks != lastTracks)
     {
         lastStep = active;
