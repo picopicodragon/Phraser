@@ -67,8 +67,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout PhraserAudioProcessor::makeP
     add("pitch", "Pitch", -12.0f, 12.0f, 0.0f, 1.0f);
     add("pitchspread", "Pitch Spread", 0.0f, 12.0f, 0.0f, 1.0f);
     add("bars", "Bars", 1.0f, 4.0f, 1.0f, 1.0f);
-    // Preserved for old project-state compatibility. v0.9 always uses 16 steps/bar.
-    add("division", "Steps per Bar (Legacy)", 8.0f, 16.0f, 16.0f, 8.0f);
+    add("division", "Steps per Bar", 8.0f, 16.0f, 16.0f, 8.0f);
     result.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID { "targetKey", 1 }, "Reference Key",
         juce::StringArray { "C", "C#", "D", "D#", "E", "F",
@@ -215,18 +214,22 @@ float PhraserAudioProcessor::getPlayPosition(int slot) const
     return playPositions[static_cast<size_t>(slot)].load(std::memory_order_relaxed);
 }
 
-int PhraserAudioProcessor::getStepsPerBar() const { return 16; }
+int PhraserAudioProcessor::getStepsPerBar() const
+{
+    return parameters.getRawParameterValue("division")->load() < 12.0f ? 8 : 16;
+}
 
 int PhraserAudioProcessor::getActiveSteps() const
 {
     const int bars = juce::jlimit(1, 4,
         static_cast<int>(std::round(parameters.getRawParameterValue("bars")->load())));
-    return 16 * bars;
+    return getStepsPerBar() * bars;
 }
 
 int PhraserAudioProcessor::getTrackCount() const
 {
-    const int bars = getActiveSteps() / 16;
+    const int bars = juce::jlimit(1, 4, static_cast<int>(
+        std::round(parameters.getRawParameterValue("bars")->load())));
     return bars == 1 ? 4 : (bars == 2 ? 2 : 1);
 }
 
@@ -539,7 +542,9 @@ void PhraserAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
 
     const int subdivision = getStepsPerBar();
     const int active = getActiveSteps();
-    const int trackCount = active == 16 ? 4 : (active == 32 ? 2 : 1);
+    const int bars = juce::jlimit(1, 4, static_cast<int>(
+        std::round(parameters.getRawParameterValue("bars")->load())));
+    const int trackCount = bars == 1 ? 4 : (bars == 2 ? 2 : 1);
     const double stepAdvance = (bpm / 60.0 * subdivision / 4.0) / engineSampleRate;
     const double baseStep = *ppq * (subdivision / 4.0);
     const double swing = parameters.getRawParameterValue("swing")->load();
