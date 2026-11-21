@@ -201,6 +201,7 @@ PhraserAudioProcessorEditor::PhraserAudioProcessorEditor(PhraserAudioProcessor& 
         mute.onClick = [this, track]
         {
             processor.setTrackMuted(track, !processor.isTrackMuted(track));
+            resized();
             repaint(15, 612, 850, 185);
         };
         addAndMakeVisible(mute);
@@ -346,10 +347,10 @@ void PhraserAudioProcessorEditor::timerCallback()
     }
     if (active != lastStep || columns != lastColumns || tracks != lastTracks)
     {
+        if (tracks != lastTracks) resized();
         lastStep = active;
         lastColumns = columns;
         lastTracks = tracks;
-        resized();
         repaint(18, 613, 1242, 179);
     }
     for (int i = 0; i < PhraserAudioProcessor::numSlots; ++i)
