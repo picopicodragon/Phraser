@@ -73,6 +73,8 @@ private:
     float dragAnchor = 0.0f;
     bool dragDuration = false;
     int lastStep = -2;
+    int lastColumns = -1;
+    int lastTracks = -1;
 
     void timerCallback() override;
     void updateSlotControls();
