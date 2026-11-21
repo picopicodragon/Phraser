@@ -1,41 +1,46 @@
-# v0.8 experimental acceptance / regression tests
+# v0.9 QA / release gate
 
-## Background
+Branch: `feature/v09-drag-key-multitrack`.
 
-v0.7.1 fixed an out-of-bounds BPM histogram write that could crash Ableton Live when loading WAV. v0.8 inherits that fix and adds independent tuning from tempo matching.
-
-## PC1 build
+## Build
 
 ```powershell
 cd C:\Users\picopicoDragon\Documents\Phraser
 git fetch origin
-git switch -c feature/v08-independent-pitch-stretch --track origin/feature/v08-independent-pitch-stretch
-cmake -S . -B build-v08 -G "Visual Studio 18 2026" -A x64
-cmake --build build-v08 --config Release --target Phraser_VST3
+git switch -c feature/v09-drag-key-multitrack --track origin/feature/v09-drag-key-multitrack
+cmake -S . -B build-v09 -G "Visual Studio 18 2026" -A x64
+cmake --build build-v09 --config Release --target Phraser_VST3
 ```
 
-Backup the prior installed VST3 and work only on a disposable Live set until tests pass.
+Keep previous working plugin bundle backed up and use a throwaway Live set until all acceptance criteria pass.
 
 ## Acceptance checklist
 
-- [ ] Windows CI and VS2026 compile/link Phraser_VST3 with no errors.
-- [ ] Import short percussion loop and longer rhythmic WAV without Live crashing (regression for v0.7.1).
-- [ ] All 16 rows show an editable TUNE field adjacent to BPM.
-- [ ] TUNE=0, WAV BPM=120, Live BPM=120, SYNC plays at approximately original pitch and duration.
-- [ ] TUNE=0, WAV BPM=120, Live BPM=90, SYNC produces approximately original pitch but longer duration.
-- [ ] TUNE=0, WAV BPM=120, Live BPM=160, SYNC produces approximately original pitch but shorter duration.
-- [ ] With SYNC enabled, change Live BPM while a long slice is sounding: speed/duration follows and pitch stays close to the chosen TUNE.
-- [ ] TUNE=+12 sounds approximately one octave above TUNE=0 at the same Live BPM. TUNE=-12 sounds approximately one octave lower.
-- [ ] FREE ignores tempo changes in source playback speed. TUNE still changes pitch without intentionally changing sample slice duration.
-- [ ] Two WAV slots with different pitch tuning play independently and their voices overlap as expected.
-- [ ] Global pitch and step pitch spread combine with per-slot TUNE with a maximum total of ±24 semitones.
-- [ ] FULL and 5ms release mode still behave independently per slot.
-- [ ] The orbit's predicted arc duration changes with BPM matching but not the selected tuning.
-- [ ] Save/reopen Live project restores per-WAV tuning, BPM, SYNC/FREE, playback mode, wave ranges and phrase state.
-- [ ] Older v0.7.1 Live project state without pitchSemitones defaults to TUNE=0.
-- [ ] Stress test dense 32-voice playback at 44.1/48 kHz, host stop/start and rapid BPM changes.
-- [ ] Listen for granular phasing, flams, flutter and attack smearing in drums, melodic loops and sustained pads. Report source WAV, BPM settings, tune and host sample rate if audible.
+- [ ] Windows CMake, Release VST3 build and bundle upload succeed without C4819 regression.
+- [ ] Ableton Live 12 opens v0.9 without warnings or host crashes; v0.7.1 WAV-import fix still works.
+- [ ] Drag WAV from Explorer onto sample-name row 1, row 8, row 16; waveforms refresh and sound works.
+- [ ] Drop multiple WAVs onto row 5 and confirm they fill consecutive slots without exceeding 16.
+- [ ] Clicking sample name still opens file picker; dragging it to the grid does not also open the picker.
+- [ ] Drag sample name onto a step cell in each BARS configuration; cell receives correct slot and enables.
+- [ ] Right-click grid offers all 16 WAV slots and toggle/lock actions; selects the exact intended cell.
+- [ ] Left-click mute/unmute, Shift+click assign selected, and LOCK survive regenerate.
+- [ ] REFERENCE KEY dropdown C to B saves/restores with the Live project.
+- [ ] For a pure tonal A=440Hz WAV, reference C gives about +3 semitone auto offset; reference A gives 0.
+- [ ] For a steady C=261.6Hz WAV, reference D gives about +2 semitone offset.
+- [ ] Drum noise and pitch-ambiguous sources show unknown and remain untuned by automatic key offset.
+- [ ] Per-WAV manual TUNE combines with auto offset and playback remains tempo-independent in SYNC mode.
+- [ ] BARS=1: 4 tracks × 16 columns each; place four simultaneous events at column one and hear them overlap.
+- [ ] BARS=2: 2 tracks × 32 columns each; trigger both at step 1 and 32.
+- [ ] BARS=3: 1 track × 48 columns; playback loops after 3 bars.
+- [ ] BARS=4: 1 track × 64 columns; playback loops after 4 bars.
+- [ ] Grid visuals, mouse hit boxes, and dragged assignments use identical mapping at all four settings.
+- [ ] Circular overlap display includes arcs from every active parallel track.
+- [ ] Save/reopen Live project restores WAV paths, sample modes, pitches, key reference, Keep A/B and phrase events.
+- [ ] Live tempo automation, 32-voice polyphony, transport stop, loop and rapid BARS changes do not crash.
 
-## Algorithm quality limits
+## Known risks / follow-up
 
-Current implementation is two-grain overlap-add with 30ms hop and a bounded waveform-similarity search at grain boundaries. It is WSOLA-inspired, but not a complete pitch-synchronous WSOLA, transient-aware vocoder, or professional formant-preserving stretcher. It approximates independent tempo and pitch; complex signals and extreme ratios may sound granular. Avoid describing it as transparent high-fidelity time stretching. Dedicated DSP tests and host automation tests remain future work.
+- Automatic root detection is a simple spectral pitch-class heuristic and should never be marketed as reliable full musical-key detection for complex 2MIX.
+- GUI file dropping, waveform analysis, and state restoration are synchronous.
+- Rapid BARS changes will reinterpret existing event cells. Add migration/independent configurations if preserving all arrangements becomes necessary.
+- CPU use from 32-voice resynthesis, 16 waveform lanes, and live circular rendering must be measured.
