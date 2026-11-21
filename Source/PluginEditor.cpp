@@ -507,14 +507,17 @@ void PhraserAudioProcessorEditor::paintSequence(juce::Graphics& g)
 void PhraserAudioProcessorEditor::paintOverlapOrbit(juce::Graphics& g)
 {
     constexpr float cx = 1075.0f;
-    constexpr float cy = 618.0f;
+    constexpr float cy = 626.0f;
     constexpr float radius0 = 27.0f;
-    constexpr float spacing = 6.3f;
+    constexpr float spacing = 6.25f;
     const float twoPi = juce::MathConstants<float>::twoPi;
-    const int active = processor.getActiveSteps();
+    const int columns = processor.getActiveSteps();
+    const int stepsPerBar = processor.getStepsPerBar();
+    const int bars = juce::jlimit(1, 4, columns / stepsPerBar);
+    const int tracks = processor.getTrackCount();
     const auto phrase = processor.getPatternSnapshot();
     const double hostBpm = juce::jmax(20.0, processor.getHostBpm());
-    const double phraseSeconds = 4.0 * (active / processor.getStepsPerBar()) * 60.0 / hostBpm;
+    const double phraseSeconds = bars * 4.0 * 60.0 / hostBpm;
 
     g.setColour(white);
     g.fillRoundedRectangle(881.0f, 454.0f, 376.0f, 337.0f, 3.0f);
@@ -522,70 +525,102 @@ void PhraserAudioProcessorEditor::paintOverlapOrbit(juce::Graphics& g)
     g.drawRoundedRectangle(881.0f, 454.0f, 376.0f, 337.0f, 3.0f, 1.0f);
     g.setColour(slate);
     g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
-    g.drawText("OVERLAP / 16 SOURCES", 896, 464, 325, 22, juce::Justification::centredLeft);
+    g.drawText("OVERLAP ORBIT / " + juce::String(bars)
+               + (bars == 1 ? " BAR AREA" : " BAR AREAS"),
+               896, 463, 336, 23, juce::Justification::centredLeft);
 
+    // One colored circular ring per sample source.
+    // The angular timeline splits into exactly BARS equal sectors, each
+    // corresponding to one complete musical bar.
     for (int slot = 0; slot < PhraserAudioProcessor::numSlots; ++slot)
     {
-        const float r = radius0 + spacing * slot;
-        const int playing = processor.getVoiceCountForSlot(slot);
+        const float radius = radius0 + spacing * slot;
         const auto colour = sampleColour(slot);
-        g.setColour(rule.withAlpha(0.7f));
-        g.drawEllipse(cx - r, cy - r, r * 2.0f, r * 2.0f, 1.0f);
-
-        const auto source = processor.getSampleSnapshot(slot);
-        if (source)
+        const bool activeVoice = processor.getVoiceCountForSlot(slot) > 0;
+        const bool muted = processor.isSlotMuted(slot);
+        for (int bar = 0; bar < bars; ++bar)
         {
-            const auto settings = processor.getSlotSettings(slot);
-            const double sourceTempo = processor.getSampleTempo(slot);
-            const double tempoRatio = settings.syncToHost && sourceTempo > 0.0
-                ? hostBpm / sourceTempo : 1.0;
-            for (int track = 0; track < processor.getTrackCount(); ++track)
-            for (int i = 0; i < active; ++i)
+            const float start = twoPi * bar / bars + 0.008f;
+            const float finish = twoPi * (bar + 1) / bars - 0.008f;
+            juce::Path trackArc;
+            trackArc.addCentredArc(cx, cy, radius, radius, 0.0f,
+                                  start, finish, true);
+            g.setColour(colour.withAlpha(
+                muted ? 0.10f : activeVoice ? 0.66f : 0.30f));
+            g.strokePath(trackArc, juce::PathStrokeType(activeVoice ? 2.9f : 1.9f));
+        }
+
+        auto sample = processor.getSampleSnapshot(slot);
+        if (!sample || muted) continue;
+        const auto settings = processor.getSlotSettings(slot);
+        const double sourceTempo = processor.getSampleTempo(slot);
+        const double tempoRatio = settings.syncToHost && sourceTempo > 0.0
+            ? hostBpm / sourceTempo : 1.0;
+        for (int track = 0; track < tracks; ++track)
+        {
+            if (processor.isTrackMuted(track)) continue;
+            for (int step = 0; step < columns; ++step)
             {
-                const int cell = PhraserAudioProcessor::getCellIndex(track, i, active);
-                const auto& e = phrase.events[static_cast<size_t>(cell)];
-                if (!e.enabled || e.slot != slot) continue;
-                const double seconds = e.length * source->audio.getNumSamples()
-                    / source->sampleRate / tempoRatio;
+                const int index = PhraserAudioProcessor::getCellIndex(
+                    track, step, columns);
+                const auto& event = phrase.events[static_cast<size_t>(index)];
+                if (!event.enabled || event.slot != slot) continue;
+
+                const double seconds = static_cast<double>(event.length)
+                    * sample->audio.getNumSamples() / sample->sampleRate / tempoRatio;
                 const double shown = settings.fadeAtNextStep
-                    ? juce::jmin(seconds, phraseSeconds / active + 0.005) : seconds;
-                const float a0 = (static_cast<float>(i) / active) * twoPi;
+                    ? juce::jmin(seconds, phraseSeconds / columns + 0.005) : seconds;
+                const float first = twoPi * step / columns;
                 const float span = juce::jlimit(0.012f, twoPi - 0.025f,
                     static_cast<float>(shown / phraseSeconds) * twoPi);
-                juce::Path arc;
-                arc.addCentredArc(cx, cy, r, r, 0.0f, a0, a0 + span, true);
-                g.setColour(colour.withAlpha(playing > 0 ? 0.92f : 0.57f));
-                g.strokePath(arc, juce::PathStrokeType(3.4f));
+                juce::Path eventArc;
+                eventArc.addCentredArc(cx, cy, radius, radius, 0.0f,
+                                      first, first + span, true);
+                g.setColour(colour.withAlpha(activeVoice ? 1.0f : 0.87f));
+                g.strokePath(eventArc, juce::PathStrokeType(4.2f));
             }
-        }
-        if (playing > 0)
-        {
-            g.setColour(colour.withAlpha(0.75f));
-            g.drawEllipse(cx - r, cy - r, r * 2.0f, r * 2.0f, 2.0f);
         }
     }
 
-    const int current = processor.getCurrentStep();
-    if (current >= 0 && active > 0)
+    // Dividers show bar areas even if no step has been assigned.
+    // A radial ray corresponds to one full bar; labels are B1..B4.
+    for (int bar = 0; bar < bars; ++bar)
     {
-        const float angle = current * twoPi / active;
+        const float a = twoPi * bar / bars;
+        const float mid = twoPi * (bar + 0.5f) / bars;
+        g.setColour(slate.withAlpha(0.36f));
+        g.drawLine(cx + std::sin(a) * 20.0f, cy - std::cos(a) * 20.0f,
+                   cx + std::sin(a) * 128.0f, cy - std::cos(a) * 128.0f, 1.2f);
+        const float lx = cx + std::sin(mid) * 150.0f;
+        const float ly = cy - std::cos(mid) * 150.0f;
+        g.setColour(slate);
+        g.setFont(juce::FontOptions(10.0f, juce::Font::bold));
+        g.drawText("B" + juce::String(bar + 1),
+                   static_cast<int>(lx - 13), static_cast<int>(ly - 10),
+                   26, 20, juce::Justification::centred);
+    }
+
+    const int current = processor.getCurrentStep();
+    if (current >= 0 && columns > 0)
+    {
+        const float angle = current * twoPi / columns;
         g.setColour(green);
-        g.drawLine(cx, cy, cx + std::sin(angle) * 134.0f,
-                   cy - std::cos(angle) * 134.0f, 1.6f);
+        g.drawLine(cx, cy, cx + std::sin(angle) * 126.0f,
+                   cy - std::cos(angle) * 126.0f, 1.7f);
     }
     g.setColour(white);
     g.fillEllipse(cx - 24.0f, cy - 24.0f, 48.0f, 48.0f);
     g.setColour(slate);
-    g.setFont(juce::FontOptions(18.0f, juce::Font::bold));
+    g.setFont(juce::FontOptions(19.0f, juce::Font::bold));
     g.drawText(juce::String(processor.getActiveVoiceCount()),
                static_cast<int>(cx - 23), static_cast<int>(cy - 18),
                46, 24, juce::Justification::centred);
     g.setFont(juce::FontOptions(9.0f));
-    g.drawText("VOICE", static_cast<int>(cx - 24), static_cast<int>(cy + 5),
-               48, 15, juce::Justification::centred);
+    g.drawText("VOICES", static_cast<int>(cx - 25),
+               static_cast<int>(cy + 6), 50, 15, juce::Justification::centred);
     g.setColour(muted);
-    g.drawText("INNER: WAV 01   /   OUTER: WAV 16",
-               905, 769, 335, 16, juce::Justification::centred);
+    g.drawText("16 COLORS = 16 WAVS    |    SECTORS = BARS",
+               895, 773, 348, 15, juce::Justification::centred);
 }
 
 void PhraserAudioProcessorEditor::paint(juce::Graphics& g)
