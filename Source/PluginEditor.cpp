@@ -909,6 +909,27 @@ void PhraserAudioProcessorEditor::filesDropped(
     }
 }
 
+void PhraserAudioProcessorEditor::mouseMove(const juce::MouseEvent& event)
+{
+    const int cell = getCellAt(event.getPosition());
+    if (cell == hoveredCell) return;
+    hoveredCell = cell;
+    if (cell < 0) return;
+    const auto phrase = processor.getPatternSnapshot();
+    const auto& note = phrase.events[static_cast<size_t>(cell)];
+    const int columns = processor.getActiveSteps();
+    const int track = cell / columns;
+    const int step = cell % columns;
+    const int slot = juce::jlimit(0, PhraserAudioProcessor::numSlots - 1, note.slot);
+    status.setText(
+        "TRACK " + juce::String(track + 1)
+        + " / STEP " + juce::String(step + 1)
+        + " / SAMPLE " + juce::String(slot + 1).paddedLeft('0', 2)
+        + " : " + processor.getSlotName(slot)
+        + (note.enabled ? "  [TRIGGER]" : "  [REST]"),
+        juce::dontSendNotification);
+}
+
 void PhraserAudioProcessorEditor::mouseDown(const juce::MouseEvent& event)
 {
     const float y = static_cast<float>(event.y);
