@@ -46,7 +46,7 @@ public:
 
 private:
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
-    static constexpr int controlCount = 12;
+    static constexpr int controlCount = 11;
     static constexpr float waveLeft = 427.0f;
     static constexpr float waveWidth = 431.0f;
     static constexpr float laneTop = 102.0f;
