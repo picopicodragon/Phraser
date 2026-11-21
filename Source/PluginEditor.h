@@ -134,6 +134,7 @@ private:
     int lastColumns = -1;
     int lastTracks = -1;
     int lastReferenceKey = -1;
+    int hoveredCell = -1;
     int lastBars = -1;
 
     void timerCallback() override;
