@@ -58,7 +58,7 @@ VST3 directory: `build-v101/Phraser_artefacts/Release/VST3/Phraser.vst3`.
 ## v1.0.1 UI corrections
 
 - Clear, dark PHRASE ENGINE numeric text and KEEP/RECALL button labels, independent of the host theme.
-- All step cells show the assigned sample's 01..16 number, including disabled cells. The **near-white** background differentiates silent steps at a glance; a narrow color stripe retains sample identity.
+- All step cells show the assigned sample's 01..16 number, including disabled cells. Hovering a cell shows its full WAV filename, track, step and trigger/rest status in the footer. The **near-white** background differentiates silent steps at a glance; a narrow color stripe retains sample identity.
 - Reworked per-WAV VOLUME/LEVEL as one clean mixer strip with filled gain, overlayed live peak meter and percentage label, while keeping individual sample gain and audio-thread measurement unchanged.
 
 ## Limitations
