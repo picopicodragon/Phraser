@@ -15,11 +15,15 @@ const juce::Colour orange { 0xffb76a34 };
 
 juce::Colour sampleColour(int index)
 {
-    const std::array<juce::Colour, 4> families {
-        juce::Colour { 0xff167d77 }, juce::Colour { 0xffb47635 },
-        juce::Colour { 0xff675cb5 }, juce::Colour { 0xffb45078 }
+    // Sixteen separate, stable source identities. Bright enough to remain
+    // distinguishable in the step grid and circular overview.
+    static constexpr std::array<juce::uint32, 16> colours {
+        0xff167d77, 0xffcf653d, 0xff6856b6, 0xffbd457b,
+        0xff2f9a52, 0xffd39928, 0xff397cc1, 0xffbf56a3,
+        0xff00a9a6, 0xffd45157, 0xff8660bd, 0xff7d9124,
+        0xff408ca2, 0xffab6c26, 0xff6054c8, 0xffcc4775
     };
-    return families[static_cast<size_t>(index / 4)];
+    return juce::Colour { colours[static_cast<size_t>(juce::jlimit(0, 15, index))] };
 }
 
 class CompactLookAndFeel final : public juce::LookAndFeel_V4
@@ -96,6 +100,7 @@ PhraserAudioProcessorEditor::PhraserAudioProcessorEditor(PhraserAudioProcessor& 
     {
         auto& load = slotButtons[static_cast<size_t>(i)];
         load.sampleSlot = i;
+        load.onContextMenu = [this, i] { showSampleKeyMenu(i); };
         load.setTooltip("Click to load WAV; drag sample name onto any phrase cell; accept Explorer WAV drops");
         load.onClick = [this, i]
         {
@@ -105,6 +110,31 @@ PhraserAudioProcessorEditor::PhraserAudioProcessorEditor(PhraserAudioProcessor& 
             loadSlot(i);
         };
         addAndMakeVisible(load);
+        auto& mute = slotMuteButtons[static_cast<size_t>(i)];
+        mute.setTooltip("Mute this WAV. Active audio becomes silent immediately.");
+        mute.onClick = [this, i]
+        {
+            auto setting = processor.getSlotSettings(i);
+            setting.muted = !setting.muted;
+            processor.setSlotSettings(i, setting);
+            updateSlotControls();
+            repaint();
+        };
+        addAndMakeVisible(mute);
+
+        auto& volume = slotVolumeSliders[static_cast<size_t>(i)];
+        volume.setSliderStyle(juce::Slider::LinearHorizontal);
+        volume.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+        volume.setRange(0.0, 1.5, 0.01);
+        volume.setTooltip("Sample volume (0% - 150%). Green overlay is peak output level.");
+        volume.onValueChange = [this, i]
+        {
+            auto setting = processor.getSlotSettings(i);
+            setting.volume = static_cast<float>(
+                slotVolumeSliders[static_cast<size_t>(i)].getValue());
+            processor.setSlotSettings(i, setting);
+        };
+        addAndMakeVisible(volume);
 
         auto& mode = modeButtons[static_cast<size_t>(i)];
         mode.onClick = [this, i]
@@ -162,6 +192,19 @@ PhraserAudioProcessorEditor::PhraserAudioProcessorEditor(PhraserAudioProcessor& 
             repaint();
         };
         addAndMakeVisible(tuning);
+    }
+
+    for (int track = 0; track < 4; ++track)
+    {
+        auto& mute = trackMuteButtons[static_cast<size_t>(track)];
+        mute.setTooltip("Mute/unmute this parallel sequencer track");
+        mute.onClick = [this, track]
+        {
+            processor.setTrackMuted(track, !processor.isTrackMuted(track));
+            resized();
+            repaint(15, 612, 850, 185);
+        };
+        addAndMakeVisible(mute);
     }
 
     for (int i = 0; i < 2; ++i)
@@ -230,7 +273,7 @@ void PhraserAudioProcessorEditor::updateSlotControls()
     {
         auto setting = processor.getSlotSettings(i);
         auto& load = slotButtons[static_cast<size_t>(i)];
-        const auto noteIndex = processor.getSamplePitchClass(i);
+        const auto noteIndex = processor.getEffectiveSourceKey(i);
         static const char* notes[] = {
             "C", "C#", "D", "D#", "E", "F",
             "F#", "G", "G#", "A", "A#", "B"
@@ -238,12 +281,18 @@ void PhraserAudioProcessorEditor::updateSlotControls()
         const auto suffix = noteIndex >= 0
             ? " [" + juce::String(notes[noteIndex]) + "]" : "";
         load.setButtonText(juce::String(i + 1).paddedLeft('0', 2) + " "
-                           + processor.getSlotName(i).substring(0, 7) + suffix);
-        load.setTooltip("Detected pitch class: "
+                           + processor.getSlotName(i).substring(0, 5) + suffix);
+        load.setTooltip("Source pitch class: "
             + (noteIndex >= 0 ? juce::String(notes[noteIndex])
                 + " / automatic correction " + juce::String(processor.getAutomaticTranspose(i))
                 + " semitones" : juce::String("unknown, no automatic tuning"))
-            + ". Drag onto step cell to assign. Click to load, or drop WAV here.");
+            + ". Right-click sample name for manual source key; drag to assign, click to load.");
+        slotMuteButtons[static_cast<size_t>(i)].setButtonText(setting.muted ? "X" : "M");
+        slotMuteButtons[static_cast<size_t>(i)].setColour(
+            juce::TextButton::buttonColourId,
+            setting.muted ? juce::Colour { 0xffe2a39e } : white);
+        slotVolumeSliders[static_cast<size_t>(i)].setValue(
+            setting.volume, juce::dontSendNotification);
         load.setColour(juce::TextButton::buttonColourId,
                        i == selectedSlot ? juce::Colour { 0xffc3dfd0 } : white);
         auto& mode = modeButtons[static_cast<size_t>(i)];
@@ -298,10 +347,17 @@ void PhraserAudioProcessorEditor::timerCallback()
     }
     if (active != lastStep || columns != lastColumns || tracks != lastTracks)
     {
+        if (tracks != lastTracks) resized();
         lastStep = active;
         lastColumns = columns;
         lastTracks = tracks;
         repaint(18, 613, 1242, 179);
+    }
+    for (int i = 0; i < PhraserAudioProcessor::numSlots; ++i)
+    {
+        auto& slider = slotVolumeSliders[static_cast<size_t>(i)];
+        slider.meter = processor.getSlotLevel(i);
+        slider.repaint();
     }
     repaint(360, 98, 501, 482);
     repaint(880, 447, 378, 346);
@@ -372,6 +428,7 @@ void PhraserAudioProcessorEditor::paintSequence(juce::Graphics& g)
     const int columns = processor.getActiveSteps(); // BARS * 8 or 16
     const int tracks = processor.getTrackCount();   // 4 / 2 / 1 / 1
     const int current = processor.getCurrentStep();
+    const int stepsPerBar = processor.getStepsPerBar();
     g.setColour(slate);
     g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
     g.drawText(juce::String(columns / processor.getStepsPerBar()) + " BARS / "
@@ -380,11 +437,11 @@ void PhraserAudioProcessorEditor::paintSequence(juce::Graphics& g)
                24, 625, 440, 22, juce::Justification::centredLeft);
     g.setColour(muted);
     g.setFont(juce::FontOptions(9.5f));
-    g.drawText("DRAG SAMPLE TO CELL  |  RIGHT-CLICK: SELECT SAMPLE",
+    g.drawText("DRAG SAMPLE / RIGHT CLICK TO ASSIGN  |  LEFT: TOGGLE",
                465, 625, 389, 22, juce::Justification::centredRight);
 
-    constexpr float left = 26.0f;
-    constexpr float width = 828.0f;
+    constexpr float left = 75.0f;
+    constexpr float width = 779.0f;
     constexpr float top = 652.0f;
     constexpr float height = 116.0f;
     const float cellWidth = width / columns;
@@ -392,6 +449,11 @@ void PhraserAudioProcessorEditor::paintSequence(juce::Graphics& g)
     for (int track = 0; track < tracks; ++track)
     {
         const float rowY = top + track * rowHeight;
+        g.setColour(processor.isTrackMuted(track)
+            ? juce::Colour { 0xffcd897d } : slate);
+        g.setFont(juce::FontOptions(9.0f, juce::Font::bold));
+        g.drawText("T" + juce::String(track + 1), 5,
+            static_cast<int>(rowY + 3), 17, 20, juce::Justification::centred);
         for (int step = 0; step < columns; ++step)
         {
             const int index = PhraserAudioProcessor::getCellIndex(track, step, columns);
@@ -400,10 +462,19 @@ void PhraserAudioProcessorEditor::paintSequence(juce::Graphics& g)
             const float y = rowY + 4.0f;
             const float w = juce::jmax(2.0f, cellWidth - 1.7f);
             const float h = juce::jmax(16.0f, rowHeight - 7.0f);
-            g.setColour(event.enabled
-                ? sampleColour(juce::jlimit(0, 15, event.slot))
-                : juce::Colour { 0xffd3dfd6 });
+            const int slot = juce::jlimit(0, 15, event.slot);
+            const bool loaded = static_cast<bool>(processor.getSampleSnapshot(slot));
+            const auto tint = sampleColour(slot);
+            g.setColour(event.enabled ? tint
+                : loaded ? tint.interpolatedWith(juce::Colour { 0xffe3ece5 }, 0.73f)
+                         : juce::Colour { 0xffd3dfd6 });
             g.fillRoundedRectangle(x, y, w, h, 1.2f);
+            // Sample identity remains visible when its cell is muted.
+            if (loaded && !event.enabled)
+            {
+                g.setColour(tint);
+                g.fillRect(x + 1.0f, y + h - 3.0f, juce::jmax(1.0f, w - 2.0f), 2.0f);
+            }
             if (step == current)
             {
                 g.setColour(green);
@@ -414,7 +485,7 @@ void PhraserAudioProcessorEditor::paintSequence(juce::Graphics& g)
                 g.setColour(orange);
                 g.fillRect(x + juce::jmax(0.0f, w - 3.0f), y + 1.0f, 2.0f, 4.0f);
             }
-            if (step % processor.getStepsPerBar() == 0)
+            if (step % stepsPerBar == 0)
             {
                 g.setColour(slate.withAlpha(0.55f));
                 g.drawVerticalLine(static_cast<int>(x), rowY, rowY + rowHeight);
@@ -437,14 +508,17 @@ void PhraserAudioProcessorEditor::paintSequence(juce::Graphics& g)
 void PhraserAudioProcessorEditor::paintOverlapOrbit(juce::Graphics& g)
 {
     constexpr float cx = 1075.0f;
-    constexpr float cy = 618.0f;
+    constexpr float cy = 626.0f;
     constexpr float radius0 = 27.0f;
-    constexpr float spacing = 6.3f;
+    constexpr float spacing = 6.25f;
     const float twoPi = juce::MathConstants<float>::twoPi;
-    const int active = processor.getActiveSteps();
+    const int columns = processor.getActiveSteps();
+    const int stepsPerBar = processor.getStepsPerBar();
+    const int bars = juce::jlimit(1, 4, columns / stepsPerBar);
+    const int tracks = processor.getTrackCount();
     const auto phrase = processor.getPatternSnapshot();
     const double hostBpm = juce::jmax(20.0, processor.getHostBpm());
-    const double phraseSeconds = 4.0 * (active / processor.getStepsPerBar()) * 60.0 / hostBpm;
+    const double phraseSeconds = bars * 4.0 * 60.0 / hostBpm;
 
     g.setColour(white);
     g.fillRoundedRectangle(881.0f, 454.0f, 376.0f, 337.0f, 3.0f);
@@ -452,70 +526,102 @@ void PhraserAudioProcessorEditor::paintOverlapOrbit(juce::Graphics& g)
     g.drawRoundedRectangle(881.0f, 454.0f, 376.0f, 337.0f, 3.0f, 1.0f);
     g.setColour(slate);
     g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
-    g.drawText("OVERLAP / 16 SOURCES", 896, 464, 325, 22, juce::Justification::centredLeft);
+    g.drawText("OVERLAP ORBIT / " + juce::String(bars)
+               + (bars == 1 ? " BAR AREA" : " BAR AREAS"),
+               896, 463, 336, 23, juce::Justification::centredLeft);
 
+    // One colored circular ring per sample source.
+    // The angular timeline splits into exactly BARS equal sectors, each
+    // corresponding to one complete musical bar.
     for (int slot = 0; slot < PhraserAudioProcessor::numSlots; ++slot)
     {
-        const float r = radius0 + spacing * slot;
-        const int playing = processor.getVoiceCountForSlot(slot);
+        const float radius = radius0 + spacing * slot;
         const auto colour = sampleColour(slot);
-        g.setColour(rule.withAlpha(0.7f));
-        g.drawEllipse(cx - r, cy - r, r * 2.0f, r * 2.0f, 1.0f);
-
-        const auto source = processor.getSampleSnapshot(slot);
-        if (source)
+        const bool activeVoice = processor.getVoiceCountForSlot(slot) > 0;
+        const bool muted = processor.isSlotMuted(slot);
+        for (int bar = 0; bar < bars; ++bar)
         {
-            const auto settings = processor.getSlotSettings(slot);
-            const double sourceTempo = processor.getSampleTempo(slot);
-            const double tempoRatio = settings.syncToHost && sourceTempo > 0.0
-                ? hostBpm / sourceTempo : 1.0;
-            for (int track = 0; track < processor.getTrackCount(); ++track)
-            for (int i = 0; i < active; ++i)
+            const float start = twoPi * bar / bars + 0.008f;
+            const float finish = twoPi * (bar + 1) / bars - 0.008f;
+            juce::Path trackArc;
+            trackArc.addCentredArc(cx, cy, radius, radius, 0.0f,
+                                  start, finish, true);
+            g.setColour(colour.withAlpha(
+                muted ? 0.10f : activeVoice ? 0.66f : 0.30f));
+            g.strokePath(trackArc, juce::PathStrokeType(activeVoice ? 2.9f : 1.9f));
+        }
+
+        auto sample = processor.getSampleSnapshot(slot);
+        if (!sample || muted) continue;
+        const auto settings = processor.getSlotSettings(slot);
+        const double sourceTempo = processor.getSampleTempo(slot);
+        const double tempoRatio = settings.syncToHost && sourceTempo > 0.0
+            ? hostBpm / sourceTempo : 1.0;
+        for (int track = 0; track < tracks; ++track)
+        {
+            if (processor.isTrackMuted(track)) continue;
+            for (int step = 0; step < columns; ++step)
             {
-                const int cell = PhraserAudioProcessor::getCellIndex(track, i, active);
-                const auto& e = phrase.events[static_cast<size_t>(cell)];
-                if (!e.enabled || e.slot != slot) continue;
-                const double seconds = e.length * source->audio.getNumSamples()
-                    / source->sampleRate / tempoRatio;
+                const int index = PhraserAudioProcessor::getCellIndex(
+                    track, step, columns);
+                const auto& event = phrase.events[static_cast<size_t>(index)];
+                if (!event.enabled || event.slot != slot) continue;
+
+                const double seconds = static_cast<double>(event.length)
+                    * sample->audio.getNumSamples() / sample->sampleRate / tempoRatio;
                 const double shown = settings.fadeAtNextStep
-                    ? juce::jmin(seconds, phraseSeconds / active + 0.005) : seconds;
-                const float a0 = (static_cast<float>(i) / active) * twoPi;
+                    ? juce::jmin(seconds, phraseSeconds / columns + 0.005) : seconds;
+                const float first = twoPi * step / columns;
                 const float span = juce::jlimit(0.012f, twoPi - 0.025f,
                     static_cast<float>(shown / phraseSeconds) * twoPi);
-                juce::Path arc;
-                arc.addCentredArc(cx, cy, r, r, 0.0f, a0, a0 + span, true);
-                g.setColour(colour.withAlpha(playing > 0 ? 0.92f : 0.57f));
-                g.strokePath(arc, juce::PathStrokeType(3.4f));
+                juce::Path eventArc;
+                eventArc.addCentredArc(cx, cy, radius, radius, 0.0f,
+                                      first, first + span, true);
+                g.setColour(colour.withAlpha(activeVoice ? 1.0f : 0.87f));
+                g.strokePath(eventArc, juce::PathStrokeType(4.2f));
             }
-        }
-        if (playing > 0)
-        {
-            g.setColour(colour.withAlpha(0.75f));
-            g.drawEllipse(cx - r, cy - r, r * 2.0f, r * 2.0f, 2.0f);
         }
     }
 
-    const int current = processor.getCurrentStep();
-    if (current >= 0 && active > 0)
+    // Dividers show bar areas even if no step has been assigned.
+    // A radial ray corresponds to one full bar; labels are B1..B4.
+    for (int bar = 0; bar < bars; ++bar)
     {
-        const float angle = current * twoPi / active;
+        const float a = twoPi * bar / bars;
+        const float mid = bars == 1 ? twoPi * 0.25f : twoPi * (bar + 0.5f) / bars;
+        g.setColour(slate.withAlpha(0.36f));
+        g.drawLine(cx + std::sin(a) * 20.0f, cy - std::cos(a) * 20.0f,
+                   cx + std::sin(a) * 128.0f, cy - std::cos(a) * 128.0f, 1.2f);
+        const float lx = cx + std::sin(mid) * 150.0f;
+        const float ly = cy - std::cos(mid) * 150.0f;
+        g.setColour(slate);
+        g.setFont(juce::FontOptions(10.0f, juce::Font::bold));
+        g.drawText("B" + juce::String(bar + 1),
+                   static_cast<int>(lx - 13), static_cast<int>(ly - 10),
+                   26, 20, juce::Justification::centred);
+    }
+
+    const int current = processor.getCurrentStep();
+    if (current >= 0 && columns > 0)
+    {
+        const float angle = current * twoPi / columns;
         g.setColour(green);
-        g.drawLine(cx, cy, cx + std::sin(angle) * 134.0f,
-                   cy - std::cos(angle) * 134.0f, 1.6f);
+        g.drawLine(cx, cy, cx + std::sin(angle) * 126.0f,
+                   cy - std::cos(angle) * 126.0f, 1.7f);
     }
     g.setColour(white);
     g.fillEllipse(cx - 24.0f, cy - 24.0f, 48.0f, 48.0f);
     g.setColour(slate);
-    g.setFont(juce::FontOptions(18.0f, juce::Font::bold));
+    g.setFont(juce::FontOptions(19.0f, juce::Font::bold));
     g.drawText(juce::String(processor.getActiveVoiceCount()),
                static_cast<int>(cx - 23), static_cast<int>(cy - 18),
                46, 24, juce::Justification::centred);
     g.setFont(juce::FontOptions(9.0f));
-    g.drawText("VOICE", static_cast<int>(cx - 24), static_cast<int>(cy + 5),
-               48, 15, juce::Justification::centred);
+    g.drawText("VOICES", static_cast<int>(cx - 25),
+               static_cast<int>(cy + 6), 50, 15, juce::Justification::centred);
     g.setColour(muted);
-    g.drawText("INNER: WAV 01   /   OUTER: WAV 16",
-               905, 769, 335, 16, juce::Justification::centred);
+    g.drawText("16 COLORS = 16 WAVS    |    SECTORS = BARS",
+               895, 773, 348, 15, juce::Justification::centred);
 }
 
 void PhraserAudioProcessorEditor::paint(juce::Graphics& g)
@@ -526,7 +632,7 @@ void PhraserAudioProcessorEditor::paint(juce::Graphics& g)
     g.drawText("PHRASER", 23, 16, 182, 35, juce::Justification::centredLeft);
     g.setColour(muted);
     g.setFont(juce::FontOptions(11.0f));
-    g.drawText("REFERENCE KEY", 538, 25, 100, 19,
+    g.drawText("PREFERENCE KEY", 532, 25, 106, 19,
                juce::Justification::centredRight);
     g.drawText("KEY / MULTITRACK / v0.9", 203, 23, 265, 21,
                juce::Justification::centredLeft);
@@ -536,13 +642,14 @@ void PhraserAudioProcessorEditor::paint(juce::Graphics& g)
     g.drawHorizontalLine(86, 20.0f, 1261.0f);
     g.setColour(slate);
     g.setFont(juce::FontOptions(10.0f, juce::Font::bold));
-    g.drawText("SAMPLE", 28, 88, 130, 15, juce::Justification::centredLeft);
-    g.drawText("END", 170, 88, 45, 15, juce::Justification::centredLeft);
-    g.drawText("CLOCK", 226, 88, 60, 15, juce::Justification::centredLeft);
-    g.drawText("BPM", 293, 88, 55, 15, juce::Justification::centred);
-    g.drawText("TUNE", 355, 88, 60, 15, juce::Justification::centred);
-    g.drawText("WAVEFORM / START (GREEN) / LENGTH (OCHRE)",
-               428, 88, 430, 15, juce::Justification::centredLeft);
+    g.drawText("SAMPLE", 28, 88, 106, 15, juce::Justification::centredLeft);
+    g.drawText("M", 143, 88, 25, 15, juce::Justification::centred);
+    g.drawText("END", 178, 88, 41, 15, juce::Justification::centredLeft);
+    g.drawText("CLOCK", 228, 88, 55, 15, juce::Justification::centredLeft);
+    g.drawText("BPM", 285, 88, 39, 15, juce::Justification::centred);
+    g.drawText("TUNE", 325, 88, 42, 15, juce::Justification::centred);
+    g.drawText("WAVE / START / LENGTH", 372, 88, 310, 15, juce::Justification::centredLeft);
+    g.drawText("VOLUME / LEVEL", 694, 88, 165, 15, juce::Justification::centredLeft);
 
     paintLanes(g);
     g.setColour(white);
@@ -569,11 +676,13 @@ void PhraserAudioProcessorEditor::resized()
     for (int i = 0; i < PhraserAudioProcessor::numSlots; ++i)
     {
         const int y = static_cast<int>(laneTop + i * lanePitch) + 1;
-        slotButtons[static_cast<size_t>(i)].setBounds(27, y, 132, 24);
-        modeButtons[static_cast<size_t>(i)].setBounds(166, y, 54, 24);
-        syncButtons[static_cast<size_t>(i)].setBounds(224, y, 60, 24);
-        tempoLabels[static_cast<size_t>(i)].setBounds(291, y, 60, 24);
-        pitchLabels[static_cast<size_t>(i)].setBounds(355, y, 62, 24);
+        slotButtons[static_cast<size_t>(i)].setBounds(27, y, 109, 24);
+        slotMuteButtons[static_cast<size_t>(i)].setBounds(139, y, 28, 24);
+        modeButtons[static_cast<size_t>(i)].setBounds(171, y, 47, 24);
+        syncButtons[static_cast<size_t>(i)].setBounds(222, y, 57, 24);
+        tempoLabels[static_cast<size_t>(i)].setBounds(282, y, 41, 24);
+        pitchLabels[static_cast<size_t>(i)].setBounds(327, y, 40, 24);
+        slotVolumeSliders[static_cast<size_t>(i)].setBounds(693, y, 163, 24);
     }
     for (int i = 0; i < controlCount; ++i)
     {
@@ -589,6 +698,24 @@ void PhraserAudioProcessorEditor::resized()
         recallButtons[static_cast<size_t>(i)].setBounds(987 + i * 175, 422, 81, 23);
     }
     referenceKeyBox.setBounds(641, 20, 103, 27);
+    const int tracks = processor.getTrackCount();
+    for (int track = 0; track < 4; ++track)
+    {
+        auto& button = trackMuteButtons[static_cast<size_t>(track)];
+        const bool visible = track < tracks;
+        button.setVisible(visible);
+        if (visible)
+        {
+            const int y = static_cast<int>(652.0f + track * (116.0f / tracks));
+            const int rowHeight = static_cast<int>(116.0f / tracks);
+            const int buttonHeight = juce::jmin(25, juce::jmax(18, rowHeight - 8));
+            button.setBounds(23, y + (rowHeight - buttonHeight) / 2,
+                             42, buttonHeight);
+            button.setButtonText(processor.isTrackMuted(track) ? "OFF" : "T" + juce::String(track + 1));
+            button.setColour(juce::TextButton::buttonColourId,
+                processor.isTrackMuted(track) ? juce::Colour { 0xffe2a39e } : white);
+        }
+    }
     status.setBounds(22, 814, 1238, 25);
 }
 
@@ -614,7 +741,7 @@ void PhraserAudioProcessorEditor::applyWaveDrag(const juce::MouseEvent& event)
 
 int PhraserAudioProcessorEditor::getCellAt(juce::Point<int> point) const
 {
-    constexpr float left = 26.0f, width = 828.0f;
+    constexpr float left = 75.0f, width = 779.0f;
     constexpr float top = 652.0f, height = 116.0f;
     if (point.x < left || point.x >= left + width
         || point.y < top || point.y >= top + height)
@@ -641,12 +768,38 @@ void PhraserAudioProcessorEditor::importSample(int slot, const juce::File& file)
                        juce::dontSendNotification);
         return;
     }
-    const int pitchClass = processor.getSamplePitchClass(slot);
+    const int pitchClass = processor.getEffectiveSourceKey(slot);
     const juce::String suffix = pitchClass >= 0
         ? ", root detected; auto-tuned " + juce::String(processor.getAutomaticTranspose(slot))
               + " semitones"
         : ", no confident root (no automatic tuning)";
     status.setText("Loaded " + file.getFileName() + suffix, juce::dontSendNotification);
+}
+
+void PhraserAudioProcessorEditor::showSampleKeyMenu(int slot)
+{
+    if (!juce::isPositiveAndBelow(slot, PhraserAudioProcessor::numSlots)) return;
+    const char* names[] = {
+        "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"
+    };
+    const auto settings = processor.getSlotSettings(slot);
+    juce::PopupMenu menu;
+    menu.addSectionHeader("SOURCE ROOT / SAMPLE " + juce::String(slot + 1));
+    menu.addItem(1, "AUTO DETECT", true, settings.sourceKeyOverride == -1);
+    for (int key = 0; key < 12; ++key)
+        menu.addItem(key + 2, names[key], true, settings.sourceKeyOverride == key);
+    const juce::Component::SafePointer<PhraserAudioProcessorEditor> safe(this);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(
+        &slotButtons[static_cast<size_t>(slot)]),
+        [safe, slot](int choice)
+        {
+            if (safe == nullptr || choice < 1 || choice > 13) return;
+            auto updated = safe->processor.getSlotSettings(slot);
+            updated.sourceKeyOverride = choice == 1 ? -1 : choice - 2;
+            safe->processor.setSlotSettings(slot, updated);
+            safe->updateSlotControls();
+            safe->repaint();
+        });
 }
 
 void PhraserAudioProcessorEditor::showCellAssignmentMenu(

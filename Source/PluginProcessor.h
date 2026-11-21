@@ -45,6 +45,9 @@ struct PhraserSlotSettings
     bool syncToHost = false;
     double manualBpm = 0.0;
     int pitchSemitones = 0; // Independent sample tuning, -12..+12.
+    int sourceKeyOverride = -1; // -1 = automatic; C=0 ... B=11.
+    bool muted = false;
+    float volume = 1.0f;
 };
 
 // Pattern and sample snapshots are immutable after publication.
@@ -84,6 +87,12 @@ public:
     int getTransientCount(int slot) const;
     int getSamplePitchClass(int slot) const;
     int getAutomaticTranspose(int slot) const;
+    int getEffectiveSourceKey(int slot) const;
+    bool isSlotMuted(int slot) const;
+    float getSlotVolume(int slot) const;
+    float getSlotLevel(int slot) const;
+    void setTrackMuted(int track, bool muted);
+    bool isTrackMuted(int track) const;
     void randomizePattern();
     void toggleStep(int step);
     void toggleLock(int step);
@@ -126,6 +135,11 @@ private:
     std::array<std::atomic<bool>, numSlots> syncToHostModes {};
     std::array<std::atomic<double>, numSlots> manualTempos {};
     std::array<std::atomic<int>, numSlots> slotPitches {};
+    std::array<std::atomic<int>, numSlots> sourceKeyOverrides {};
+    std::array<std::atomic<bool>, numSlots> slotMutes {};
+    std::array<std::atomic<float>, numSlots> slotVolumes {};
+    std::array<std::atomic<float>, numSlots> slotLevels {};
+    std::array<std::atomic<bool>, 4> trackMutes {};
     mutable juce::CriticalSection settingsLock;
     juce::AudioFormatManager formatManager;
     juce::Random random;
@@ -155,6 +169,10 @@ private:
         double pitchIncrement = 1.0; // Tuning, independent of timeline advance.
         double sourceStart = 0.0;
         int pitchSemitones = 0;
+        int track = -1;
+        float levelGain = 1.0f;
+        double initialPitchSemitones = 0.0;
+        int appliedRootShift = 0;
         static constexpr int grainTimeMs = 30;
         int grainHopFrames = 1;
         int64_t currentGrainHop = -1;
@@ -166,7 +184,7 @@ private:
     int nextVoice = 0;
     uint64_t voiceSerial = 0;
 
-    void startStep(const SliceEvent&,
+    void startStep(const SliceEvent&, int track,
                    const std::array<std::shared_ptr<const PhraserSample>, numSlots>&,
                    double releaseFrames);
     void publishVoiceMeters();

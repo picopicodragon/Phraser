@@ -1,14 +1,31 @@
-# v0.9 compact drag/key/parallel-track layout
+# v1.0 compact sample mixer and bar-sector orbit
 
-The JUCE 1280×850 light-colored waveform workstation remains.
+Native JUCE UI: fixed 1280x850px, light gray/ivory studio palette and sharp 1-3px radii.
 
-- HEADER: REFERENCE KEY dropdown (C ... B). The STEPS rotary knob is restored immediately beside BARS; it switches 8 or 16 steps per bar.
-- SAMPLE NAME column: Click to open WAV picker; drag an existing name onto a phrase step; drop WAVs from Explorer directly onto the name row. A detected pitch-class suffix is displayed when available, and the automatic reference-key transposition is shown in the tooltip.
-- Per-WAV FULL/5ms, SYNC/FREE, BPM and TUNE controls remain adjacent to each name.
-- WAVEFORM: Drag for start selection and Shift+drag for length selection, retained.
-- STEP GRID: Dynamic number of tracks/columns. BARS=1: 4×8 or 4×16. BARS=2: 2×16 or 2×32. BARS=3: 1×24 or 1×48. BARS=4: 1×32 or 1×64. All rows play in parallel, so the two- and four-track modes can layer samples at identical transport times.
-- STEP INTERACTION: Drop a sample name onto a cell, or right-click to select from a menu of all 16 sample names. Left-click toggles enabled, Shift-click assigns currently selected sample.
-- OVERLAP ORBIT: The circular view accounts for events in every enabled track.
-- Dense 48/64 column layouts use narrow bars with accent dividers at each 8-step or 16-step bar; individual numeric labels are omitted at narrow widths.
+## Row layout
 
-All artwork and interaction code are Phraser-specific. No original phrz assets are included.
+Each of the sixteen sample rows, left to right:
+
+`SAMPLE NAME | MUTE | FULL/5ms | SYNC/FREE | BPM | TUNE | WAVEFORM | VOLUME+LEVEL`
+
+The volume slider shares the same area as its peak-level meter, which is a thin green overlay. The WAV name can be clicked for file chooser, dragged onto a grid cell, or right-clicked to select a SOURCE ROOT (AUTO or C..B) for preference-key following. Explorer WAV drops still work on the name column.
+
+## Upper right
+
+Global controls remain in 3 rows of 4 rotary knobs. BARS is immediately beside STEPS. PREFERENCE KEY is in the header.
+
+## Adaptive step grid
+
+Left-edge track mute button **T1–T4** / **OFF** for each visible row. Sample-assigned cells use 16 unique source colors, not one generic green. Muted step cells show a faint source color and a small bright bottom marker, if the assigned source WAV is loaded.
+
+BARS/STEPS:
+- BARS1: 4 parallel tracks with 8 or 16 steps each.
+- BARS2: 2 parallel tracks with 16 or 32 steps each.
+- BARS3: 1 track with 24 or 48 steps.
+- BARS4: 1 track with 32 or 64 steps.
+
+## Overlap orbit
+
+The orbit includes sixteen thin, colored concentric rings and switches between **1, 2, 3 or 4 equal bar sectors** according to BARS. Each bar sector has a B1..B4 label. Every enabled step becomes a colored angular arc on its sample's ring, with span approximating its individual duration. Active voices brighten their source ring, while muted sources dim. Thin radial boundaries indicate bar changes; a green ray indicates the currently active step and the center displays polyphony count.
+
+The orbit does not generate a separate miniature circle for each bar; one larger circle is divided into bar sectors so all sixteen sources remain visible at once.

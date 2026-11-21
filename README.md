@@ -1,78 +1,68 @@
 # Phraser
 
-Independent Windows x64 VST3 generative sample instrument for Ableton Live 12, built with JUCE 8.0.8 and C++17.
+Windows x64 VST3 sample-phrase generator for Ableton Live 12, JUCE 8.0.8 and C++17.
 
-## v0.9.1 experimental
+## v1.0 experimental: key follow, sample mixer and redesigned bar orbit
 
-Development branch: `feature/v091-restore-steps-control`. Base is v0.9, which itself is based on v0.8 pitch-independent time-stretch implementation. Existing working builds remain on their original branches.
+Development branch: `feature/v10-key-mixer-orbit-mutes`, based on v0.9.1. This is a draft feature branch. Back up the installed working VST3 and use a test Live set until validation.
 
-### 1. WAV drag-and-drop
+### PREFERENCE KEY / root tuning
 
-Drag one or more WAV files from Windows Explorer onto the **SAMPLE NAME** column of any row. A single WAV loads into that sample slot; multiple WAVs fill consecutive slots up to number 16. Click the sample name to open the normal file picker, as before. The import is still synchronous and subject to the existing per-WAV size limit.
+- The C..B **PREFERENCE KEY** selector remains a host-stored parameter.
+- WAVs with a confidently estimated dominant pitch class are automatically transposed to match that choice, with the shortest ±6-semitone shift.
+- For WAVs without a reliable detected root, **right-click the SAMPLE NAME** to choose its SOURCE ROOT note C..B, or AUTO DETECT. The manual source-root override is persisted per sample in the Live project. This is the dependable way to force a key shift when detection fails.
+- A sample's tooltip shows the effective root and actual semitone correction to the currently selected reference. Changed reference keys also update currently playing voices, without changing their tempo-related source-timeline speed.
+- Per-source TUNE (-12..12), global PITCH and generated event pitch are still additive.
+- An isolated sample's predominant pitch class is not necessarily a piece of music's harmonic key. No accurate major/minor key determination for polyphonic 2MIX is claimed.
 
-### 2. Reference note and automatic transposition
+### Distinct sample colors and the bar orbit
 
-A **REFERENCE KEY** drop-down in the header accepts C, C#, D, D#, E, F, F#, G, G#, A, A#, B. This is a **pitch class/reference root**, not a major/minor musical-key classification.
+- All 16 WAVs have **different, stable colors** across the sample area, grid, and 16 concentric circular rings. Assigned steps retain a colored marker even when disabled.
+- The lower-right orbit is a read-only musical timeline. The **circumference divides into 1, 2, 3 or 4 labeled BAR sectors**, following the BARS knob. Within every sector, colored arcs indicate enabled steps and their estimated sounding lengths.
+- Ring number (inner to outer) represents SAMPLE 01..16; green ray indicates current step; the center displays active polyphonic voice count. Mutes dim source rings and hide their scheduled arcs. Orbit arcs remain a timing estimate, not a live oscilloscope.
 
-When a WAV is loaded, an offline 4096-point FFT analyzes its spectral peaks across several time windows. For **confidently monophonic/tonal** material, it estimates a dominant pitch class. Playback then applies the shortest transposition within ±6 semitones from the detected pitch class to the selected reference pitch class. This auto-tune offset is combined with the source's editable TUNE (±12 semitones), the global PITCH, and the phrase event's pitch offset; the overall sum is limited to ±24 semitones. The v0.8 pitch-independent granular engine preserves this tuning when Live BPM changes.
+### Track and sample mute
 
-For drums, noise, chords, or ambiguous material, the detector may return **unknown**, in which case the automatic transpose is zero rather than forcing a guessed pitch. The WAV's detected note appears beside its shortened name (when known), and the sample button tooltip shows its current automatic semitone offset. The reference key is a DAW parameter, so it is stored with Live projects and affects newly triggered voices.
+- A mute button sits at the left of each current sequencer track. The arrangement remains 4 tracks for BARS=1, 2 for BARS=2, and 1 for BARS=3/4.
+- A separate mute button sits on each SAMPLE row. Both prevent new events from triggering and silence currently active voices while engaged.
+- Track mute is stored for all four possible track indices and survives Live project save/load.
+- Each of the 16 sample mutes is saved in the corresponding SampleSlot.
 
-**Important:** This is a conservative dominant-pitch detector, not professional musical-key detection or formant-preserving pitch correction. Complex/polyphonic recordings may be misidentified; users can still adjust per-WAV TUNE manually. No automatic major/minor key or chord analysis is claimed.
+### Sample mixer: gain + embedded meter
 
-### 3. Phrase-cell sample assignment
+- Every SAMPLE row contains an adjustable horizontal **VOLUME** slider (0..150%, initial 100%).
+- A green peak-level indicator overlays the slider track. It reflects that sample's **actual mixed per-voice output contribution**, measured on the audio thread, with a short decay.
+- Gain and meter are independent for each WAV. Sample gain is saved in the host project; meter values are live-only.
+- Master OUTPUT remains available. Heavy overlapping voices can still clip; no limiter was added.
 
-- **Drag a sample name** from the SAMPLE list onto a phrase grid cell to assign it to that cell and enable it.
-- **Right-click any phrase cell** to open a context menu listing all 16 WAV slots, including an option to toggle the step or toggle its LOCK state.
-- Normal **left-click** toggles step mute; **Shift+click** assigns the last-selected WAV. These functions are preserved.
-- Loading a WAV into a previously assigned slot changes the timbre of all the cells using that slot, without changing their arrangements.
+### Retained v0.9.1 functionality
 
-### 4. BARS and STEPS: parallel-track arrangement
+- 16 WAVs, Explorer-to-SAMPLE file drops, SAMPLE-to-cell drops and right-click step assignment
+- BARS 1–4, STEPS 8 or 16 per bar, adaptive track counts, up to 64 stored cells
+- 32 independent overlapping voices, per-WAV FULL/5ms and SYNC/FREE
+- BPM auto-estimation/manual override; pitch-independent granular resynthesis
+- Waveform start/duration drag editing, Generate, Keep A/B, serialization
 
-Each bar uses **8 or 16 steps**, selected by the restored **STEPS** control beside BARS. The host tempo clock advances by eighth notes at 8 steps/bar or sixteenth notes at 16 steps/bar. BARS selects the length of each track and the number of **simultaneously running tracks**, within the same 64-cell pattern budget:
-
-| BARS | STEPS=8 (per track) | STEPS=16 (per track) | Parallel tracks |
-| --- | --- | --- | --- |
-| 1 | 8 | 16 | 4 |
-| 2 | 16 | 32 | 2 |
-| 3 | 24 | 48 | 1 |
-| 4 | 32 | 64 | 1 |
-
-Within every bar, all enabled tracks trigger their corresponding cells **at the same transport position**. For one bar at STEPS=16, four separate 16-step rows play in parallel. For two bars at STEPS=16, two 32-step rows play in parallel. Three and four bars use one longer row respectively. STEPS=8 halves the number of columns and uses eighth-note timing. Grid cells are indexed by `row * stepsPerTrack + step`.
-
-The existing `division` parameter is **active again** as STEPS (8 or 16), beside BARS; old project values remain compatible. BARS changes the interpretation of the 64 stored pattern events, so **a pattern edited at one BARS setting may sound differently after changing BARS**. Use Keep A/B or separate Live sets to preserve alternate configurations.
-
-### Preserved features
-
-- 16 WAV slots and waveform peaks with dragging to edit START FROM/TO and LENGTH MIN/MAX.
-- Per-WAV FULL/5ms, SYNC/FREE, editable BPM and TUNE.
-- Source onset-based sample tempo estimate, pitch-independent resynthesis, 32-voice overlap.
-- Random generation, density, breaks, variation, swing, transient snap, pitch spread, gain/fade.
-- Phrase Keep A/B snapshots, project-state persistence and circular overlap visualization.
-
-## Windows build
+## Build (PC1)
 
 ```powershell
 cd C:\Users\picopicoDragon\Documents\Phraser
 git fetch origin
-git switch -c feature/v091-restore-steps-control --track origin/feature/v091-restore-steps-control
-cmake -S . -B build-v091 -G "Visual Studio 18 2026" -A x64
-cmake --build build-v091 --config Release --target Phraser_VST3
+git switch -c feature/v10-key-mixer-orbit-mutes --track origin/feature/v10-key-mixer-orbit-mutes
+cmake -S . -B build-v10 -G "Visual Studio 18 2026" -A x64
+cmake --build build-v10 --config Release --target Phraser_VST3
 ```
 
-VST3 bundle: `build-v091/Phraser_artefacts/Release/VST3/Phraser.vst3`. Quit Live and back up the previous installed VST3 bundle before replacing `C:\Program Files\Common Files\VST3\Phraser.vst3`.
+VST3 directory: `build-v10/Phraser_artefacts/Release/VST3/Phraser.vst3`.
 
-## Known limitations
+## Limitations
 
-This is an **experimental** branch. Build success does not establish Ableton Live 12 host reliability.
+- Automatic source-key estimation is conservative; manually enter SOURCE ROOT for uncertain/noisy/chordal WAVs. Musical-mode recognition (major/minor) is not implemented.
+- The granular time-domain pitch stretcher may introduce transient smearing and flutter on complex sources.
+- Changing reference root affects sounding voices immediately and could briefly produce a transition artifact; no pitch-glide smoothing is provided.
+- Audio decoding, pitch/tempo detection and project-restoration file loads remain synchronous; this can block Live on long WAVs.
+- A 32-voice cap remains, with immediate oldest-voice stealing at saturation. Layer summation can clip.
+- Peak meters measure per-slot amplitude before final output clipping and are not LUFS or dBFS calibrated.
+- Fixed-size 1280×850 panel; some controls are compact by design.
 
-- Source pitch estimation is strongest on steady, monophonic, pitched signals; not a robust full-song harmonic key estimator.
-- Samples with ambiguous pitch are not automatically tuned. Automatic transpose uses the nearest ±6 semitone distance between root pitch classes, not a musical mode.
-- Existing two-grain WSOLA-inspired tempo/pitch processing can generate audible modulation on some material.
-- Files are imported and analyzed synchronously, and audio-thread shared_ptr retirement is not strictly hard-real-time safe.
-- Max 32 simultaneous voices; oldest-voice stealing is abrupt and simultaneous sources can clip.
-- WAVs remain external, referenced by absolute paths. Existing file size restrictions apply.
-- 64 stored cells are reinterpreted when BARS changes, rather than maintaining separate arrangement snapshots for each BARS value.
-- Fixed 1280×850 GUI. At 48/64 steps in a single track the cells become narrow; hover/context menu and drag are preferable to reading tiny step labels.
-
-See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for Windows/Live QA.
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for QA gates.

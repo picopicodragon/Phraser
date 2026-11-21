@@ -1,36 +1,37 @@
-# v0.9.1 STEPS control regression tests
+# Phraser v1.0: regression and acceptance
 
-STEPS has been restored as the rotary knob immediately to the right of BARS, with two options: 8 / 16. It also controls host transport timing and grid columns. Previous v0.9 features are preserved.
+Branch: `feature/v10-key-mixer-orbit-mutes`, based on v0.9.1.
 
-## Build
+## Windows build
 
 ```powershell
 cd C:\Users\picopicoDragon\Documents\Phraser
 git fetch origin
-git switch -c feature/v091-restore-steps-control --track origin/feature/v091-restore-steps-control
-cmake -S . -B build-v091 -G "Visual Studio 18 2026" -A x64
-cmake --build build-v091 --config Release --target Phraser_VST3
+git switch -c feature/v10-key-mixer-orbit-mutes --track origin/feature/v10-key-mixer-orbit-mutes
+cmake -S . -B build-v10 -G "Visual Studio 18 2026" -A x64
+cmake --build build-v10 --config Release --target Phraser_VST3
 ```
 
-## Test matrix
+## Must-pass PC1 checks
 
-| BARS | STEPS | Tracks | Columns per track | Cells |
-| --- | --- | --- | --- | --- |
-| 1 | 8 | 4 | 8 | 32 |
-| 1 | 16 | 4 | 16 | 64 |
-| 2 | 8 | 2 | 16 | 32 |
-| 2 | 16 | 2 | 32 | 64 |
-| 3 | 8 | 1 | 24 | 24 |
-| 3 | 16 | 1 | 48 | 48 |
-| 4 | 8 | 1 | 32 | 32 |
-| 4 | 16 | 1 | 64 | 64 |
+- [ ] Windows VST3 builds without compile/link errors.
+- [ ] In Ableton Live 12, 16 sample lanes all fit in 1280x850 with MUTE and VOLUME+meter.
+- [ ] Click WAV name for chooser; drag WAV from Explorer into NAME column; drag sample onto grid.
+- [ ] The sample’s detected key appears when reliable. Set PREFERENCE KEY to C then G and verify sample transposition.
+- [ ] For a known A 440Hz sine, force SOURCE ROOT=A using sample-name right-click, PREFERENCE KEY=C, TUNE=0 and check output near C frequency (approx +3 semitones); then PREFERENCE KEY=A should return to 440Hz.
+- [ ] For non-tonal drums without detected root, AUTO leaves pitch unchanged; manual root override works.
+- [ ] Changing preference while a long voice sustains updates its pitch while retaining the current tempo.
+- [ ] Every SAMPLE has its own mute. Muted slot silences already playing voice and prevents new triggers.
+- [ ] Track T1..T4 mute buttons are visible only for the current number of tracks; mutes silence that track's playback.
+- [ ] Every sample volume slider affects just that WAV; 0% silent, 100% unity, 150% louder (allowing clipping).
+- [ ] Green peak meter overlay rises on sample playback and decays/falls with silence, independent per WAV.
+- [ ] Grid assigned sample colors are all distinct, even for adjacent sample slots; inactive but loaded assignments show color.
+- [ ] Orbit ring 1..16 colors correspond exactly to sample colors; arcs show event spans and active voice count.
+- [ ] BARS=1 shows one labeled bar sector; BARS=2 shows 2; BARS=3 shows 3; BARS=4 shows 4.
+- [ ] BARS 1/2/3/4 and STEPS 8/16 still give correct timing, grid layout and parallel tracks.
+- [ ] Save/reopen Live project restores 16 sample gains, source mutes, track mutes, source root overrides, reference key and old settings.
+- [ ] Old v0.9.1 projects default to all unmuted, 100% volume and AUTO source key without errors.
+- [ ] Live transport start/stop resets meters/voices; no stale activity.
+- [ ] Test 32-voice overlap and rapid mute/key changes for crashes, clicks, CPU spikes and plugin window stability.
 
-- [ ] Windows Release VST3 CI succeeds.
-- [ ] STEPS is visible adjacent to BARS and switches between 8 and 16 (only).
-- [ ] STEP=8 triggers 8 events per 4/4 bar; STEP=16 triggers 16.
-- [ ] Changing BARS or STEPS refreshes grid while stopped, including hit testing.
-- [ ] Multiple tracks trigger at identical transport positions.
-- [ ] Sample drag/drop and right-click assignment work at every setting.
-- [ ] Generate, lock, Keep A/B and host state save/reopen work for both STEPS settings.
-- [ ] Reference-key tuning and existing WAV-import crash fix still work.
-- [ ] Live 12 tempo changes and transport seek do not cause stuck notes or crashes.
+Known unresolved issues: pitch detection can be ambiguous, granular pitch correction can sound rough, file loading remains synchronous, sample handoff is not strictly hard realtime safe, and mix gain can clip.

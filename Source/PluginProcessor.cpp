@@ -90,6 +90,11 @@ PhraserAudioProcessor::PhraserAudioProcessor()
         tempo.store(0.0, std::memory_order_relaxed);
     for (auto& pitch : slotPitches)
         pitch.store(0, std::memory_order_relaxed);
+    for (auto& root : sourceKeyOverrides) root.store(-1, std::memory_order_relaxed);
+    for (auto& mute : slotMutes) mute.store(false, std::memory_order_relaxed);
+    for (auto& level : slotVolumes) level.store(1.0f, std::memory_order_relaxed);
+    for (auto& meter : slotLevels) meter.store(0.0f, std::memory_order_relaxed);
+    for (auto& mute : trackMutes) mute.store(false, std::memory_order_relaxed);
     randomizePattern();
 }
 
@@ -193,13 +198,50 @@ int PhraserAudioProcessor::getBasePitchClass() const
         std::round(parameters.getRawParameterValue("targetKey")->load())));
 }
 
+int PhraserAudioProcessor::getEffectiveSourceKey(int slot) const
+{
+    if (!juce::isPositiveAndBelow(slot, numSlots)) return -1;
+    const int overrideKey = sourceKeyOverrides[static_cast<size_t>(slot)].load(std::memory_order_relaxed);
+    return overrideKey >= 0 ? overrideKey : getSamplePitchClass(slot);
+}
+
 int PhraserAudioProcessor::getAutomaticTranspose(int slot) const
 {
-    const int detected = getSamplePitchClass(slot);
+    const int detected = getEffectiveSourceKey(slot);
     if (detected < 0) return 0;
     int shift = (getBasePitchClass() - detected + 12) % 12;
     if (shift > 6) shift -= 12;
     return shift;
+}
+
+bool PhraserAudioProcessor::isSlotMuted(int slot) const
+{
+    return juce::isPositiveAndBelow(slot, numSlots)
+        && slotMutes[static_cast<size_t>(slot)].load(std::memory_order_relaxed);
+}
+
+float PhraserAudioProcessor::getSlotVolume(int slot) const
+{
+    return juce::isPositiveAndBelow(slot, numSlots)
+        ? slotVolumes[static_cast<size_t>(slot)].load(std::memory_order_relaxed) : 1.0f;
+}
+
+float PhraserAudioProcessor::getSlotLevel(int slot) const
+{
+    return juce::isPositiveAndBelow(slot, numSlots)
+        ? slotLevels[static_cast<size_t>(slot)].load(std::memory_order_relaxed) : 0.0f;
+}
+
+void PhraserAudioProcessor::setTrackMuted(int track, bool muted)
+{
+    if (juce::isPositiveAndBelow(track, 4))
+        trackMutes[static_cast<size_t>(track)].store(muted, std::memory_order_relaxed);
+}
+
+bool PhraserAudioProcessor::isTrackMuted(int track) const
+{
+    return juce::isPositiveAndBelow(track, 4)
+        && trackMutes[static_cast<size_t>(track)].load(std::memory_order_relaxed);
 }
 
 int PhraserAudioProcessor::getTransientCount(int slot) const
@@ -253,6 +295,8 @@ void PhraserAudioProcessor::setSlotSettings(int slot, PhraserSlotSettings value)
     value.lengthMin = juce::jlimit(0.005f, 1.0f, value.lengthMin);
     value.lengthMax = juce::jlimit(value.lengthMin, 1.0f, value.lengthMax);
     value.pitchSemitones = juce::jlimit(-12, 12, value.pitchSemitones);
+    value.sourceKeyOverride = juce::jlimit(-1, 11, value.sourceKeyOverride);
+    value.volume = std::isfinite(value.volume) ? juce::jlimit(0.0f, 1.5f, value.volume) : 1.0f;
     value.manualBpm = (std::isfinite(value.manualBpm) && value.manualBpm >= 40.0
                        && value.manualBpm <= 240.0) ? value.manualBpm : 0.0;
     const juce::ScopedLock guard(settingsLock);
@@ -261,6 +305,9 @@ void PhraserAudioProcessor::setSlotSettings(int slot, PhraserSlotSettings value)
     syncToHostModes[static_cast<size_t>(slot)].store(value.syncToHost, std::memory_order_release);
     manualTempos[static_cast<size_t>(slot)].store(value.manualBpm, std::memory_order_release);
     slotPitches[static_cast<size_t>(slot)].store(value.pitchSemitones, std::memory_order_release);
+    sourceKeyOverrides[static_cast<size_t>(slot)].store(value.sourceKeyOverride, std::memory_order_release);
+    slotMutes[static_cast<size_t>(slot)].store(value.muted, std::memory_order_release);
+    slotVolumes[static_cast<size_t>(slot)].store(value.volume, std::memory_order_release);
 }
 
 PhraserPattern PhraserAudioProcessor::getPatternSnapshot() const
@@ -402,11 +449,12 @@ void PhraserAudioProcessor::recallKeep(int index)
 // independently generated slice duration (or until the sample end).
 // When all 32 slots are occupied, the oldest voice is stolen.
 void PhraserAudioProcessor::startStep(
-    const SliceEvent& event,
+    const SliceEvent& event, int track,
     const std::array<std::shared_ptr<const PhraserSample>, numSlots>& available,
     double /*releaseFrames*/)
 {
-    if (!event.enabled || !juce::isPositiveAndBelow(event.slot, numSlots)) return;
+    if (!event.enabled || !juce::isPositiveAndBelow(event.slot, numSlots)
+        || isTrackMuted(track) || isSlotMuted(event.slot)) return;
     auto source = available[static_cast<size_t>(event.slot)];
     if (!source || source->audio.getNumSamples() < 2) return;
 
@@ -428,6 +476,7 @@ void PhraserAudioProcessor::startStep(
     Voice voice;
     voice.source = std::move(source);
     voice.slot = event.slot;
+    voice.track = track;
     voice.fadeAtNextStep = fadeAtNextStepModes[static_cast<size_t>(event.slot)].load(std::memory_order_acquire);
     voice.syncToHost = syncToHostModes[static_cast<size_t>(event.slot)].load(std::memory_order_acquire);
     voice.tempoBpm = manualTempos[static_cast<size_t>(event.slot)].load(std::memory_order_acquire);
@@ -443,16 +492,21 @@ void PhraserAudioProcessor::startStep(
     // Tune tonal samples to the chosen reference note. Percussive/ambiguous
     // samples have detectedPitchClass=-1 and are left unchanged.
     int automatic = 0;
-    if (voice.source->detectedPitchClass >= 0)
+    const int sourceKey = getEffectiveSourceKey(event.slot);
+    if (sourceKey >= 0)
     {
-        automatic = (getBasePitchClass() - voice.source->detectedPitchClass + 12) % 12;
+        automatic = (getBasePitchClass() - sourceKey + 12) % 12;
         if (automatic > 6) automatic -= 12;
     }
+    const double baseSemitones = static_cast<double>(event.semitones)
+        + static_cast<double>(globalPitch)
+        + static_cast<double>(voice.pitchSemitones);
     const double semitones = juce::jlimit(-24.0, 24.0,
-        static_cast<double>(event.semitones) + static_cast<double>(globalPitch)
-        + static_cast<double>(voice.pitchSemitones) + automatic);
+        baseSemitones + automatic);
     // Source timeline moves only with musical tempo. Pitch changes the
     // internal grain playback rate, not the duration of a slice.
+    voice.initialPitchSemitones = baseSemitones;
+    voice.appliedRootShift = automatic;
     voice.baseIncrement = voice.source->sampleRate / engineSampleRate;
     voice.pitchIncrement = voice.baseIncrement * std::pow(2.0, semitones / 12.0);
     voice.increment = voice.baseIncrement;
@@ -514,6 +568,7 @@ void PhraserAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
         currentStep.store(-1, std::memory_order_relaxed);
         for (auto& voice : voices) voice = {};
         publishVoiceMeters();
+        for (auto& meter : slotLevels) meter.store(0.0f, std::memory_order_relaxed);
         return;
     }
     const auto position = host->getPosition();
@@ -523,6 +578,9 @@ void PhraserAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
         currentStep.store(-1, std::memory_order_relaxed);
         for (auto& voice : voices) voice = {};
         for (auto& indicator : playPositions) indicator.store(-1.0f, std::memory_order_relaxed);
+        for (auto& meter : slotLevels) meter.store(0.0f, std::memory_order_relaxed);
+        activeVoiceCount.store(0, std::memory_order_relaxed);
+        for (auto& count : slotVoiceCounts) count.store(0, std::memory_order_relaxed);
         return;
     }
 
@@ -530,6 +588,25 @@ void PhraserAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
     const double bpm = position->getBpm().orFallback(120.0);
     if (!ppq || bpm <= 0.0) return;
     lastBpm.store(bpm, std::memory_order_relaxed);
+    // Preference-key changes affect voices that are already sounding, not
+    // just future triggers. Retune grain readers without changing timeline.
+    for (auto& voice : voices)
+    {
+        if (!voice.source || !juce::isPositiveAndBelow(voice.slot, numSlots)) continue;
+        const int sourceKey = getEffectiveSourceKey(voice.slot);
+        int desired = sourceKey < 0 ? 0
+            : (getBasePitchClass() - sourceKey + 12) % 12;
+        if (desired > 6) desired -= 12;
+        if (desired != voice.appliedRootShift)
+        {
+            const double oldPitch = juce::jlimit(-24.0, 24.0,
+                voice.initialPitchSemitones + voice.appliedRootShift);
+            const double newPitch = juce::jlimit(-24.0, 24.0,
+                voice.initialPitchSemitones + desired);
+            voice.pitchIncrement *= std::pow(2.0, (newPitch - oldPitch) / 12.0);
+            voice.appliedRootShift = desired;
+        }
+    }
     // Recalculate play rate for already-sounding tempo-synchronized voices.
     // Free-running voices retain their original pitch/speed.
     for (auto& voice : voices)
@@ -553,6 +630,7 @@ void PhraserAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
     const float gain = parameters.getRawParameterValue("gain")->load();
     const double crossfadeFrames = juce::jmax(1.0, 0.005 * engineSampleRate);
 
+    std::array<float, numSlots> meteredPeaks {};
     for (int frame = 0; frame < buffer.getNumSamples(); ++frame)
     {
         const double sequencePosition = baseStep + frame * stepAdvance;
@@ -579,7 +657,7 @@ void PhraserAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
             for (int track = 0; track < trackCount; ++track)
             {
                 const int cell = getCellIndex(track, column, active);
-                startStep(localPattern->events[static_cast<size_t>(cell)],
+                startStep(localPattern->events[static_cast<size_t>(cell)], track,
                           available, crossfadeFrames);
             }
         }
@@ -587,6 +665,9 @@ void PhraserAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
         for (auto& voice : voices)
         {
             if (!voice.source) continue;
+            const bool voiceMuted = isSlotMuted(voice.slot) || isTrackMuted(voice.track);
+            // Keep grain read-heads advancing while muted, so restoring
+            // the mute never restarts a stale crossfade phase.
             const auto& audio = voice.source->audio;
             if (voice.position >= voice.end
                 || voice.position >= audio.getNumSamples() - 1)
@@ -643,7 +724,8 @@ void PhraserAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
             const float olderWeight = 1.0f - freshWeight;
             const double highest = juce::jmin(
                 voice.end - 0.0001, static_cast<double>(audio.getNumSamples() - 1));
-            const float amp = static_cast<float>(envelope) * gain;
+            const float amp = voiceMuted ? 0.0f
+                : static_cast<float>(envelope) * gain * getSlotVolume(voice.slot);
 
             for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
             {
@@ -657,13 +739,26 @@ void PhraserAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
                 };
                 const float value = sampleAt(fresh) * freshWeight
                     + sampleAt(older) * olderWeight;
-                buffer.addSample(channel, frame, value * amp);
+                const float out = value * amp;
+                buffer.addSample(channel, frame, out);
+                meteredPeaks[static_cast<size_t>(voice.slot)] =
+                    juce::jmax(meteredPeaks[static_cast<size_t>(voice.slot)], std::abs(out));
             }
             voice.position += voice.increment;
             voice.rendered += 1.0;
         }
     }
 
+    for (int i = 0; i < numSlots; ++i)
+    {
+        const auto index = static_cast<size_t>(i);
+        const float previous = slotLevels[index].load(std::memory_order_relaxed);
+        const float decay = static_cast<float>(
+            std::exp(-static_cast<double>(buffer.getNumSamples())
+                / (engineSampleRate * 0.18)));
+        slotLevels[index].store(juce::jmax(meteredPeaks[index], previous * decay),
+                                std::memory_order_relaxed);
+    }
     publishVoiceMeters();
 }
 
@@ -676,7 +771,7 @@ void PhraserAudioProcessor::getStateInformation(juce::MemoryBlock& destination)
 {
     auto xml = parameters.copyState().createXml();
     if (!xml) return;
-    xml->setAttribute("phraserVersion", 9);
+    xml->setAttribute("phraserVersion", 10);
     std::array<PhraserSlotSettings, numSlots> ranges;
     {
         const juce::ScopedLock guard(settingsLock);
@@ -697,8 +792,13 @@ void PhraserAudioProcessor::getStateInformation(juce::MemoryBlock& destination)
         slot->setAttribute("syncToHost", v.syncToHost);
         slot->setAttribute("manualBpm", v.manualBpm);
         slot->setAttribute("pitchSemitones", v.pitchSemitones);
+        slot->setAttribute("sourceKeyOverride", v.sourceKeyOverride);
+        slot->setAttribute("muted", v.muted);
+        slot->setAttribute("volume", v.volume);
     }
 
+    for (int track = 0; track < 4; ++track)
+        xml->setAttribute("trackMute" + juce::String(track), isTrackMuted(track));
     auto* phrase = xml->createNewChildElement("Phrase");
     for (const auto& e : getPatternSnapshot().events) writeStep(*phrase, e);
     for (int i = 0; i < 2; ++i)
@@ -742,6 +842,9 @@ void PhraserAudioProcessor::setStateInformation(const void* data, int size)
             range.syncToHost = slotElement->getBoolAttribute("syncToHost", false);
             range.manualBpm = slotElement->getDoubleAttribute("manualBpm", 0.0);
             range.pitchSemitones = slotElement->getIntAttribute("pitchSemitones", 0);
+            range.sourceKeyOverride = slotElement->getIntAttribute("sourceKeyOverride", -1);
+            range.muted = slotElement->getBoolAttribute("muted", false);
+            range.volume = static_cast<float>(slotElement->getDoubleAttribute("volume", 1.0));
         }
         setSlotSettings(i, range);
 
@@ -750,6 +853,9 @@ void PhraserAudioProcessor::setStateInformation(const void* data, int size)
         else std::atomic_store(&samples[static_cast<size_t>(i)],
                                std::shared_ptr<const PhraserSample> {});
     }
+
+    for (int track = 0; track < 4; ++track)
+        setTrackMuted(track, xml->getBoolAttribute("trackMute" + juce::String(track), false));
 
     if (auto* phrase = xml->getChildByName("Phrase"))
         std::atomic_store(&pattern,

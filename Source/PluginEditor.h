@@ -8,10 +8,20 @@ class SampleSlotButton final : public juce::TextButton
 public:
     int sampleSlot = -1;
     bool dragStarted = false;
+    std::function<void()> onContextMenu;
     void mouseDown(const juce::MouseEvent& event) override
     {
         dragStarted = false;
         juce::TextButton::mouseDown(event);
+    }
+    void mouseUp(const juce::MouseEvent& event) override
+    {
+        if (event.mods.isRightButtonDown() && onContextMenu)
+        {
+            onContextMenu();
+            return;
+        }
+        juce::TextButton::mouseUp(event);
     }
     void mouseDrag(const juce::MouseEvent& event) override
     {
@@ -22,6 +32,21 @@ public:
                 container->startDragging("PhraserSample:" + juce::String(sampleSlot), this);
             }
         juce::TextButton::mouseDrag(event);
+    }
+};
+
+class SampleLevelSlider final : public juce::Slider
+{
+public:
+    float meter = 0.0f;
+    void paint(juce::Graphics& g) override
+    {
+        juce::Slider::paint(g);
+        const auto area = getLocalBounds().toFloat().reduced(4.0f, 5.0f);
+        const float fraction = juce::jlimit(0.0f, 1.0f, meter);
+        g.setColour(juce::Colour { 0xff21a878 }.withAlpha(0.50f));
+        g.fillRect(area.withWidth(area.getWidth() * fraction)
+                  .withHeight(3.0f).withY(area.getBottom() - 4.0f));
     }
 };
 
@@ -47,8 +72,8 @@ public:
 private:
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
     static constexpr int controlCount = 12;
-    static constexpr float waveLeft = 427.0f;
-    static constexpr float waveWidth = 431.0f;
+    static constexpr float waveLeft = 372.0f;
+    static constexpr float waveWidth = 314.0f;
     static constexpr float laneTop = 102.0f;
     static constexpr float lanePitch = 30.0f;
 
@@ -57,6 +82,9 @@ private:
     juce::TextButton generateButton { "GENERATE" };
     std::array<SampleSlotButton, PhraserAudioProcessor::numSlots> slotButtons;
     std::array<juce::TextButton, PhraserAudioProcessor::numSlots> modeButtons;
+    std::array<juce::TextButton, PhraserAudioProcessor::numSlots> slotMuteButtons;
+    std::array<SampleLevelSlider, PhraserAudioProcessor::numSlots> slotVolumeSliders;
+    std::array<juce::TextButton, 4> trackMuteButtons;
     std::array<juce::TextButton, PhraserAudioProcessor::numSlots> syncButtons;
     std::array<juce::Label, PhraserAudioProcessor::numSlots> tempoLabels;
     std::array<juce::Label, PhraserAudioProcessor::numSlots> pitchLabels;
@@ -76,6 +104,7 @@ private:
     int lastColumns = -1;
     int lastTracks = -1;
     int lastReferenceKey = -1;
+    int lastBars = -1;
 
     void timerCallback() override;
     void updateSlotControls();
@@ -87,5 +116,6 @@ private:
     int getCellAt(juce::Point<int>) const;
     void importSample(int slot, const juce::File&);
     void showCellAssignmentMenu(int cell, juce::Point<int> screen);
+    void showSampleKeyMenu(int slot);
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PhraserAudioProcessorEditor)
 };
