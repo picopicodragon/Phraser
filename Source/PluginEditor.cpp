@@ -662,13 +662,14 @@ void PhraserAudioProcessorEditor::paint(juce::Graphics& g)
 {
     g.fillAll(paper);
     g.setColour(slate);
-    g.setFont(juce::FontOptions(24.0f, juce::Font::bold));
-    g.drawText("PHRASER", 23, 16, 182, 35, juce::Justification::centredLeft);
+    g.setFont(juce::FontOptions(22.0f, juce::Font::bold));
+    g.drawText("PHRASER by picopicodragon", 23, 16, 397, 35,
+               juce::Justification::centredLeft);
     g.setColour(muted);
     g.setFont(juce::FontOptions(11.0f));
     g.drawText("PREFERENCE KEY", 532, 25, 106, 19,
                juce::Justification::centredRight);
-    g.drawText("KEY / MULTITRACK / v1.0.1", 203, 23, 265, 21,
+    g.drawText("v1.0.1", 422, 23, 70, 21,
                juce::Justification::centredLeft);
     g.drawText("WAV on sample row: IMPORT   /   SAMPLE NAME to GRID: ASSIGN   /   WAVE DRAG: RANGE",
                23, 58, 850, 22, juce::Justification::centredLeft);
