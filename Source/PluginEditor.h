@@ -8,10 +8,20 @@ class SampleSlotButton final : public juce::TextButton
 public:
     int sampleSlot = -1;
     bool dragStarted = false;
+    std::function<void()> onContextMenu;
     void mouseDown(const juce::MouseEvent& event) override
     {
         dragStarted = false;
         juce::TextButton::mouseDown(event);
+    }
+    void mouseUp(const juce::MouseEvent& event) override
+    {
+        if (event.mods.isRightButtonDown() && onContextMenu)
+        {
+            onContextMenu();
+            return;
+        }
+        juce::TextButton::mouseUp(event);
     }
     void mouseDrag(const juce::MouseEvent& event) override
     {
