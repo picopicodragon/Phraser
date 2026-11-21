@@ -35,3 +35,17 @@ cmake --build build-v10 --config Release --target Phraser_VST3
 - [ ] Test 32-voice overlap and rapid mute/key changes for crashes, clicks, CPU spikes and plugin window stability.
 
 Known unresolved issues: pitch detection can be ambiguous, granular pitch correction can sound rough, file loading remains synchronous, sample handoff is not strictly hard realtime safe, and mix gain can clip.
+
+## v1.0.1 regression QA
+
+- [ ] PHRASE ENGINE 12 rotary value fields have clearly readable text in white/cream boxes.
+- [ ] KEEP A, KEEP B, RECALL A, RECALL B have visible dark text in both normal and hover states.
+- [ ] Each volume control shows volume position as a marker and percentage, with a live green level overlay **within the same bar**.
+- [ ] Per-sample peak overlay responds independently to audio from that slot and recedes when silent.
+- [ ] Enabled step cells retain sample-specific colors and display two-digit **sample slot numbers**, not step column numbers.
+- [ ] Silent steps have almost-white backgrounds yet their assigned sample's number and thin color marker remain readable.
+- [ ] At BARS=4/STEPS=16 (64 columns), sample numbers fit within the narrowest cells; no spill outside cells.
+- [ ] Hovering any step reveals track, column, assigned source number and full WAV filename in the status footer.
+- [ ] At 8/16 subdivisions and all BARS modes, step labels and drag/drop hitboxes remain aligned.
+- [ ] Existing source/key tuning, sample/track mute, DAW save/restore and WAV loading remain functional.
+- [ ] Test on Windows with 100% and 150% display scaling; verify plugin UI legibility.

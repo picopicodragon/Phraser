@@ -32,8 +32,11 @@ public:
     CompactLookAndFeel()
     {
         setColour(juce::TextButton::textColourOffId, slate);
+        setColour(juce::TextButton::textColourOnId, slate);
         setColour(juce::Label::textColourId, muted);
         setColour(juce::Slider::textBoxTextColourId, slate);
+        setColour(juce::Slider::textBoxHighlightColourId, juce::Colour { 0xffcee9d7 });
+        setColour(juce::Slider::textBoxOutlineColourId, juce::Colour { 0xffbecfc3 });
         setColour(juce::Slider::textBoxBackgroundColourId, white);
         setColour(juce::Slider::textBoxOutlineColourId, rule);
     }
@@ -46,6 +49,18 @@ public:
         g.setColour(hovered ? green : rule);
         g.drawRoundedRectangle(bounds, 2.0f, 1.0f);
     }
+    void drawButtonText(juce::Graphics& g, juce::TextButton& button,
+                        bool /*highlighted*/, bool /*down*/) override
+    {
+        // JUCE button defaults could inherit light/white foreground from
+        // host theme. Explicit dark text is readable on every pastel fill.
+        g.setColour(juce::Colour { 0xff1e3029 });
+        g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
+        g.drawFittedText(button.getButtonText(),
+            button.getLocalBounds().reduced(3, 2),
+            juce::Justification::centred, 1);
+    }
+
     void drawRotarySlider(juce::Graphics& g, int x, int y, int w, int h,
                           float position, float start, float end, juce::Slider&) override
     {
@@ -227,6 +242,13 @@ PhraserAudioProcessorEditor::PhraserAudioProcessorEditor(PhraserAudioProcessor& 
             status.setText("Recalled Keep " + juce::String(i == 0 ? "A" : "B"),
                            juce::dontSendNotification);
         };
+        const auto cream = juce::Colour { 0xffedf4ed };
+        save.setColour(juce::TextButton::buttonColourId, juce::Colour { 0xffcfebd7 });
+        recall.setColour(juce::TextButton::buttonColourId, cream);
+        save.setColour(juce::TextButton::textColourOffId, slate);
+        recall.setColour(juce::TextButton::textColourOffId, slate);
+        save.setColour(juce::TextButton::textColourOnId, slate);
+        recall.setColour(juce::TextButton::textColourOnId, slate);
         addAndMakeVisible(save);
         addAndMakeVisible(recall);
     }
@@ -244,6 +266,10 @@ PhraserAudioProcessorEditor::PhraserAudioProcessorEditor(PhraserAudioProcessor& 
         auto& slider = sliders[static_cast<size_t>(i)];
         slider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
         slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 70, 19);
+        slider.setColour(juce::Slider::textBoxTextColourId, juce::Colour { 0xff172f26 });
+        slider.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colour { 0xfff9fcfa });
+        slider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colour { 0xffbdcdc1 });
+        slider.setColour(juce::Slider::textBoxHighlightColourId, juce::Colour { 0xffcde9d5 });
         addAndMakeVisible(slider);
         auto& label = sliderLabels[static_cast<size_t>(i)];
         label.setText(names[static_cast<size_t>(i)], juce::dontSendNotification);
@@ -465,15 +491,21 @@ void PhraserAudioProcessorEditor::paintSequence(juce::Graphics& g)
             const int slot = juce::jlimit(0, 15, event.slot);
             const bool loaded = static_cast<bool>(processor.getSampleSnapshot(slot));
             const auto tint = sampleColour(slot);
-            g.setColour(event.enabled ? tint
-                : loaded ? tint.interpolatedWith(juce::Colour { 0xffe3ece5 }, 0.73f)
-                         : juce::Colour { 0xffd3dfd6 });
+            // No-trigger steps are near-white regardless of source.
+            // Active cells retain their assigned sample's distinct color.
+            g.setColour(event.enabled
+                ? tint : juce::Colour { 0xfffafcfa });
             g.fillRoundedRectangle(x, y, w, h, 1.2f);
-            // Sample identity remains visible when its cell is muted.
-            if (loaded && !event.enabled)
+            g.setColour(event.enabled ? tint.darker(0.30f)
+                                      : juce::Colour { 0xffd7e2db });
+            g.drawRoundedRectangle(x, y, w, h, 1.2f, 0.7f);
+            // Always retain sample identity, including while not triggered:
+            // tiny colored bottom marker, plus its 01..16 number.
+            if (!event.enabled)
             {
-                g.setColour(tint);
-                g.fillRect(x + 1.0f, y + h - 3.0f, juce::jmax(1.0f, w - 2.0f), 2.0f);
+                g.setColour(tint.withAlpha(0.85f));
+                g.fillRect(x + 1.0f, y + h - 2.5f,
+                           juce::jmax(1.0f, w - 2.0f), 1.5f);
             }
             if (step == current)
             {
@@ -490,17 +522,19 @@ void PhraserAudioProcessorEditor::paintSequence(juce::Graphics& g)
                 g.setColour(slate.withAlpha(0.55f));
                 g.drawVerticalLine(static_cast<int>(x), rowY, rowY + rowHeight);
             }
-            if (cellWidth >= 26.0f)
-            {
-                g.setColour(event.enabled ? juce::Colours::white : muted);
-                g.setFont(juce::FontOptions(9.0f, juce::Font::bold));
-                const auto text = event.enabled
-                    ? juce::String(event.slot + 1)
-                    : juce::String(step + 1);
-                g.drawText(text, static_cast<int>(x + 1),
-                           static_cast<int>(y), static_cast<int>(w - 1),
-                           static_cast<int>(h), juce::Justification::centred);
-            }
+            // Assigned sample number, not sequencer column, is shown
+            // even for 48/64-step modes. Compact two-digit text is
+            // supported down to ~12px-wide cells.
+            g.setColour(event.enabled ? juce::Colours::white
+                                      : juce::Colour { 0xff344d41 });
+            g.setFont(juce::FontOptions(cellWidth >= 18.0f ? 9.0f : 7.0f,
+                                        juce::Font::bold));
+            g.drawFittedText(juce::String(slot + 1).paddedLeft('0', 2),
+                juce::Rectangle<int>(
+                    static_cast<int>(x), static_cast<int>(y),
+                    juce::jmax(1, static_cast<int>(w)),
+                    juce::jmax(1, static_cast<int>(h - 2.0f))),
+                juce::Justification::centred, 1, 0.7f);
         }
     }
 }
@@ -634,7 +668,7 @@ void PhraserAudioProcessorEditor::paint(juce::Graphics& g)
     g.setFont(juce::FontOptions(11.0f));
     g.drawText("PREFERENCE KEY", 532, 25, 106, 19,
                juce::Justification::centredRight);
-    g.drawText("KEY / MULTITRACK / v0.9", 203, 23, 265, 21,
+    g.drawText("KEY / MULTITRACK / v1.0.1", 203, 23, 265, 21,
                juce::Justification::centredLeft);
     g.drawText("WAV on sample row: IMPORT   /   SAMPLE NAME to GRID: ASSIGN   /   WAVE DRAG: RANGE",
                23, 58, 850, 22, juce::Justification::centredLeft);
@@ -873,6 +907,27 @@ void PhraserAudioProcessorEditor::filesDropped(
         if (wav.hasFileExtension("wav") && wav.existsAsFile())
             importSample(slot++, wav);
     }
+}
+
+void PhraserAudioProcessorEditor::mouseMove(const juce::MouseEvent& event)
+{
+    const int cell = getCellAt(event.getPosition());
+    if (cell == hoveredCell) return;
+    hoveredCell = cell;
+    if (cell < 0) return;
+    const auto phrase = processor.getPatternSnapshot();
+    const auto& note = phrase.events[static_cast<size_t>(cell)];
+    const int columns = processor.getActiveSteps();
+    const int track = cell / columns;
+    const int step = cell % columns;
+    const int slot = juce::jlimit(0, PhraserAudioProcessor::numSlots - 1, note.slot);
+    status.setText(
+        "TRACK " + juce::String(track + 1)
+        + " / STEP " + juce::String(step + 1)
+        + " / SAMPLE " + juce::String(slot + 1).paddedLeft('0', 2)
+        + " : " + processor.getSlotName(slot)
+        + (note.enabled ? "  [TRIGGER]" : "  [REST]"),
+        juce::dontSendNotification);
 }
 
 void PhraserAudioProcessorEditor::mouseDown(const juce::MouseEvent& event)
