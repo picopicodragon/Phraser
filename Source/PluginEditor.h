@@ -39,14 +39,43 @@ class SampleLevelSlider final : public juce::Slider
 {
 public:
     float meter = 0.0f;
+
     void paint(juce::Graphics& g) override
     {
-        juce::Slider::paint(g);
-        const auto area = getLocalBounds().toFloat().reduced(4.0f, 5.0f);
-        const float fraction = juce::jlimit(0.0f, 1.0f, meter);
-        g.setColour(juce::Colour { 0xff21a878 }.withAlpha(0.50f));
-        g.fillRect(area.withWidth(area.getWidth() * fraction)
-                  .withHeight(3.0f).withY(area.getBottom() - 4.0f));
+        // One integrated bar: light background, volume fill, translucent
+        // live peak level over the same track and a white volume marker.
+        // Slider still handles all input/gestures and automation normally.
+        const auto bounds = getLocalBounds().toFloat();
+        const auto track = juce::Rectangle<float>(
+            3.0f, 4.0f, juce::jmax(20.0f, bounds.getWidth() - 36.0f),
+            juce::jmax(10.0f, bounds.getHeight() - 8.0f));
+        const float volume = juce::jlimit(0.0f, 1.0f,
+            static_cast<float>(getValue() / 1.5));
+        const float peak = juce::jlimit(0.0f, 1.0f, meter);
+
+        g.setColour(juce::Colour { 0xfff8fbf8 });
+        g.fillRoundedRectangle(track, 3.0f);
+        g.setColour(juce::Colour { 0xffc6d7cb });
+        g.drawRoundedRectangle(track, 3.0f, 1.0f);
+
+        g.saveState();
+        g.reduceClipRegion(track.toNearestInt());
+        g.setColour(juce::Colour { 0xff98b7a6 });
+        g.fillRect(track.withWidth(track.getWidth() * volume));
+        g.setColour(juce::Colour { 0xff24b774 }.withAlpha(0.68f));
+        g.fillRect(track.withWidth(track.getWidth() * peak));
+        g.restoreState();
+
+        const float markerX = track.getX() + track.getWidth() * volume;
+        g.setColour(juce::Colour { 0xff193e2f });
+        g.drawLine(markerX, track.getY() - 1.0f,
+                   markerX, track.getBottom() + 1.0f, 2.0f);
+
+        g.setColour(juce::Colour { 0xff1e3029 });
+        g.setFont(juce::FontOptions(10.0f, juce::Font::bold));
+        g.drawText(juce::String(juce::roundToInt(getValue() * 100.0)) + "%",
+            track.getRight() + 4.0f, 2.0f, 31.0f,
+            bounds.getHeight() - 4.0f, juce::Justification::centredRight);
     }
 };
 
