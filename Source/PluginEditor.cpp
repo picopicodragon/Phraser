@@ -602,6 +602,116 @@ void PhraserAudioProcessorEditor::applyWaveDrag(const juce::MouseEvent& event)
     repaint(18, static_cast<int>(laneTop + dragSlot * lanePitch) - 1, 848, 30);
 }
 
+int PhraserAudioProcessorEditor::getCellAt(juce::Point<int> point) const
+{
+    constexpr float left = 26.0f, width = 828.0f;
+    constexpr float top = 652.0f, height = 116.0f;
+    if (point.x < left || point.x >= left + width
+        || point.y < top || point.y >= top + height)
+        return -1;
+    const int columns = processor.getActiveSteps();
+    const int rows = processor.getTrackCount();
+    const int row = juce::jlimit(0, rows - 1,
+        static_cast<int>((point.y - top) / (height / rows)));
+    const int column = juce::jlimit(0, columns - 1,
+        static_cast<int>((point.x - left) / (width / columns)));
+    return PhraserAudioProcessor::getCellIndex(row, column, columns);
+}
+
+void PhraserAudioProcessorEditor::importSample(int slot, const juce::File& file)
+{
+    if (!juce::isPositiveAndBelow(slot, PhraserAudioProcessor::numSlots)) return;
+    const bool ok = processor.loadWavFile(slot, file);
+    selectedSlot = slot;
+    updateSlotControls();
+    repaint();
+    if (!ok)
+    {
+        status.setText("Unable to import WAV (unsupported or exceeds size limit)",
+                       juce::dontSendNotification);
+        return;
+    }
+    const int pitchClass = processor.getSamplePitchClass(slot);
+    const juce::String suffix = pitchClass >= 0
+        ? ", root detected; auto-tuned " + juce::String(processor.getAutomaticTranspose(slot))
+              + " semitones"
+        : ", no confident root (no automatic tuning)";
+    status.setText("Loaded " + file.getFileName() + suffix, juce::dontSendNotification);
+}
+
+void PhraserAudioProcessorEditor::showCellAssignmentMenu(
+    int cell, juce::Point<int> screen)
+{
+    if (!juce::isPositiveAndBelow(cell, processor.getCellCount())) return;
+    juce::PopupMenu menu;
+    menu.addSectionHeader("ASSIGN SAMPLE TO STEP");
+    for (int slot = 0; slot < PhraserAudioProcessor::numSlots; ++slot)
+        menu.addItem(100 + slot, juce::String(slot + 1).paddedLeft('0', 2)
+            + "  " + processor.getSlotName(slot), true, false);
+    menu.addSeparator();
+    menu.addItem(201, "Toggle step");
+    menu.addItem(202, "Toggle LOCK");
+    const juce::Component::SafePointer<PhraserAudioProcessorEditor> safe(this);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea(
+        juce::Rectangle<int>(screen.x, screen.y, 1, 1)),
+        [safe, cell](int selection)
+        {
+            if (safe == nullptr) return;
+            if (selection >= 100 && selection < 116)
+                safe->processor.setStepSlot(cell, selection - 100);
+            else if (selection == 201) safe->processor.toggleStep(cell);
+            else if (selection == 202) safe->processor.toggleLock(cell);
+            safe->repaint(15, 613, 850, 177);
+        });
+}
+
+bool PhraserAudioProcessorEditor::isInterestedInDragSource(
+    const SourceDetails& details)
+{
+    return details.description.toString().startsWith("PhraserSample:");
+}
+
+void PhraserAudioProcessorEditor::itemDropped(const SourceDetails& details)
+{
+    const int cell = getCellAt(details.localPosition);
+    if (cell < 0) return;
+    const auto text = details.description.toString();
+    if (!text.startsWith("PhraserSample:")) return;
+    const int slot = text.fromFirstOccurrenceOf(":", false, false).getIntValue();
+    if (!juce::isPositiveAndBelow(slot, PhraserAudioProcessor::numSlots)) return;
+    processor.setStepSlot(cell, slot);
+    status.setText("Assigned sample " + juce::String(slot + 1)
+        + " to step cell " + juce::String(cell + 1), juce::dontSendNotification);
+    repaint(15, 613, 850, 177);
+}
+
+bool PhraserAudioProcessorEditor::isInterestedInFileDrag(
+    const juce::StringArray& files)
+{
+    for (const auto& path : files)
+        if (juce::File(path).hasFileExtension("wav")) return true;
+    return false;
+}
+
+void PhraserAudioProcessorEditor::filesDropped(
+    const juce::StringArray& files, int x, int y)
+{
+    // File drop is accepted only over the SAMPLE NAME column; multiple WAVs
+    // populate consecutive slots from the row where they were dropped.
+    if (x < 27 || x > 160 || y < laneTop
+        || y >= laneTop + lanePitch * PhraserAudioProcessor::numSlots)
+        return;
+    int slot = juce::jlimit(0, PhraserAudioProcessor::numSlots - 1,
+        static_cast<int>((y - laneTop) / lanePitch));
+    for (const auto& path : files)
+    {
+        if (slot >= PhraserAudioProcessor::numSlots) break;
+        const juce::File wav(path);
+        if (wav.hasFileExtension("wav") && wav.existsAsFile())
+            importSample(slot++, wav);
+    }
+}
+
 void PhraserAudioProcessorEditor::mouseDown(const juce::MouseEvent& event)
 {
     const float y = static_cast<float>(event.y);
@@ -618,15 +728,21 @@ void PhraserAudioProcessorEditor::mouseDown(const juce::MouseEvent& event)
         applyWaveDrag(event);
         return;
     }
-    if (event.y < 654 || event.y > 764 || event.x < 24 || event.x > 858) return;
-    const int col = juce::jlimit(0, 15, static_cast<int>((event.x - 24) / 52.1f));
-    const int row = juce::jlimit(0, 3, (event.y - 654) / 29);
-    const int step = row * 16 + col;
-    if (step >= processor.getActiveSteps()) return;
-    if (event.mods.isRightButtonDown()) processor.toggleLock(step);
-    else if (event.mods.isShiftDown()) processor.setStepSlot(step, selectedSlot);
-    else processor.toggleStep(step);
-    repaint(15, 612, 850, 175);
+
+    const int cell = getCellAt(event.getPosition());
+    if (cell < 0) return;
+    if (event.mods.isRightButtonDown())
+        showCellAssignmentMenu(cell, event.getScreenPosition());
+    else if (event.mods.isShiftDown())
+    {
+        processor.setStepSlot(cell, selectedSlot);
+        repaint(15, 613, 850, 177);
+    }
+    else
+    {
+        processor.toggleStep(cell);
+        repaint(15, 613, 850, 177);
+    }
 }
 
 void PhraserAudioProcessorEditor::mouseDrag(const juce::MouseEvent& event)
